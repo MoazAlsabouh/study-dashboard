@@ -84,80 +84,171 @@ $("lessonSubject").addEventListener("change", ()=>{state.unitIndex=0;renderLesso
 $("prevUnit").addEventListener("click", ()=>{if(state.unitIndex>0){state.unitIndex--;renderLessons();window.scrollTo({top:document.querySelector('.lessons-card').offsetTop-20,behavior:'smooth'});}});
 $("nextUnit").addEventListener("click", ()=>{const {units}=getUnits();if(state.unitIndex<units.length-1){state.unitIndex++;renderLessons();window.scrollTo({top:document.querySelector('.lessons-card').offsetTop-20,behavior:'smooth'});}});
 $("logout").addEventListener("click", async ()=>{await fetch('/api/logout',{method:'POST'});location.href='/login.html';});
+$("channelForm").addEventListener(
+  "submit",
+  async e => {
+    e.preventDefault();
+
+    const button =
+      e.target.querySelector(
+        'button[type="submit"]'
+      );
+
+    const oldText =
+      button.textContent;
+
+    button.disabled = true;
+
+    try {
+      const response = await fetch(
+        "/api/channels",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify(
+            Object.fromEntries(
+              new FormData(e.target).entries()
+            )
+          )
+        }
+      );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.details ||
+          data.error ||
+          "تعذر إضافة المصدر"
+        );
+      }
+
+      e.target.reset();
+
+      await loadChannels();
+
+    } catch (error) {
+
+      console.error(
+        "تعذر إضافة المصدر:",
+        error
+      );
+
+      alert(
+        `تعذر إضافة المصدر إلى Notion:\n${error.message}`
+      );
+
+    } finally {
+
+      button.disabled = false;
+      button.textContent = oldText;
+    }
+  }
+);
 
 load();
 loadLessons();
 
 async function loadChannels() {
+  const container = $("channels");
+
   try {
-    const r = await fetch("/api/channels", {
+    const response = await fetch("/api/channels", {
       cache: "no-store"
     });
 
-    const data = await r.json();
+    const data = await response.json();
 
-    if (!r.ok) {
-      throw new Error(data.details || data.error || "تعذر تحميل القنوات");
+    if (!response.ok) {
+      throw new Error(
+        data.details ||
+        data.error ||
+        "تعذر تحميل القنوات"
+      );
     }
 
-    const rows = Array.isArray(data) ? data : [];
+    const rows = Array.isArray(data)
+      ? data
+      : [];
 
-    $("channels").innerHTML = rows.map(x => `
-      <article class="channel">
+    if (!rows.length) {
+      container.innerHTML =
+        '<div class="empty">لا توجد قنوات مضافة حاليًا.</div>';
 
-        <div class="channel-subject">
-          ${escapeHtml(x.subject || "")}
-        </div>
+      return;
+    }
 
-        ${
-          x.channelUrl
-            ? `
-              <a
-                href="${escapeAttr(x.channelUrl)}"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="channel-link"
-              >
-                🎥 ${escapeHtml(x.name || "")}
-              </a>
-            `
-            : `
-              <div class="channel-link">
-                🎥 ${escapeHtml(x.name || "")}
-              </div>
-            `
-        }
+    container.innerHTML = rows
+      .map(x => `
+        <article class="channel">
 
-        ${
-          x.playlistName
-            ? x.playlistUrl
+          <p class="channel-subject">
+            ${escapeHtml(x.subject || "")}
+          </p>
+
+          ${
+            x.channelUrl
               ? `
                 <a
-                  href="${escapeAttr(x.playlistUrl)}"
+                  class="channel-link"
+                  href="${escapeAttr(x.channelUrl)}"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="playlist-link"
                 >
-                  ▶ ${escapeHtml(x.playlistName)}
+                  🎥 ${escapeHtml(x.name || "")}
                 </a>
               `
               : `
-                <div class="playlist-link">
-                  ▶ ${escapeHtml(x.playlistName)}
-                </div>
+                <h3>
+                  🎥 ${escapeHtml(x.name || "")}
+                </h3>
               `
-            : ""
-        }
+          }
 
-      </article>
-    `).join("");
+          ${
+            x.playlistName
+              ? (
+                  x.playlistUrl
+                    ? `
+                      <a
+                        class="playlist-link"
+                        href="${escapeAttr(x.playlistUrl)}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        ▶ ${escapeHtml(x.playlistName)}
+                      </a>
+                    `
+                    : `
+                      <p class="playlist-link">
+                        ▶ ${escapeHtml(x.playlistName)}
+                      </p>
+                    `
+                )
+              : ""
+          }
+
+        </article>
+      `)
+      .join("");
 
   } catch (error) {
-    console.error("تعذر تحميل القنوات:", error);
 
-    $("channels").innerHTML = `
-      <div class="error-message">
-        تعذر تحميل القنوات وقوائم التشغيل.
+    console.error(
+      "تعذر تحميل القنوات:",
+      error
+    );
+
+    container.innerHTML = `
+      <div class="error">
+        تعذر تحميل القنوات:
+        ${escapeHtml(error.message)}
       </div>
     `;
   }
