@@ -24,6 +24,54 @@ if (!process.env.NOTION_TOKEN) {
 const notion = new Client({ auth: process.env.NOTION_TOKEN });
 const DATA_SOURCE_ID = process.env.NOTION_DATA_SOURCE_ID;
 const CHANNELS_DATA_SOURCE_ID = process.env.NOTION_CHANNELS_DATA_SOURCE_ID;
+const CHANNELS_DATABASE_ID = process.env.NOTION_CHANNELS_DATABASE_ID;
+
+async function getChannelsDataSourceId() {
+  // إذا تم تحديد Data Source ID مباشرة، استخدمه.
+  if (CHANNELS_DATA_SOURCE_ID) {
+    try {
+      await notion.dataSources.retrieve({
+        data_source_id: CHANNELS_DATA_SOURCE_ID
+      });
+
+      return CHANNELS_DATA_SOURCE_ID;
+    } catch (error) {
+      // قد تكون القيمة Database ID بدل Data Source ID.
+      console.warn(
+        "NOTION_CHANNELS_DATA_SOURCE_ID ليس Data Source ID صالحًا، سيتم محاولة اكتشافه من قاعدة البيانات."
+      );
+    }
+  }
+
+  // إذا تم تحديد Database ID، استخرج منه الـ Data Source.
+  const databaseId =
+    CHANNELS_DATABASE_ID || CHANNELS_DATA_SOURCE_ID;
+
+  if (!databaseId) {
+    throw new Error(
+      "لم يتم إعداد NOTION_CHANNELS_DATA_SOURCE_ID أو NOTION_CHANNELS_DATABASE_ID."
+    );
+  }
+
+  const database = await notion.databases.retrieve({
+    database_id: databaseId
+  });
+
+  const dataSources = database.data_sources || [];
+
+  if (!dataSources.length) {
+    throw new Error(
+      "لم يتم العثور على Data Source داخل قاعدة بيانات القنوات."
+    );
+  }
+
+  // نبحث أولًا عن Data Source باسم القنوات وقوائم التشغيل.
+  const preferred = dataSources.find(
+    x => x.name === "القنوات وقوائم التشغيل"
+  );
+
+  return (preferred || dataSources[0]).id;
+}
 
 app.use(express.json());
 
@@ -157,17 +205,52 @@ app.get("/api/channels", async (_req,res) => {
   } catch(e){res.status(500).json({error:e.message});}
 });
 
-app.post("/api/channels", async (req,res) => {
+app.get("/api/channels", async (_req, res) => {
   try {
-    const {name,subject,channelUrl,playlistName,playlistUrl,notes}=req.body||{};
-    if(!name||!subject) return res.status(400).json({error:"اسم القناة والمادة مطلوبان"});
-    const text=v=>v?[{text:{content:v}}]:[];
-    const props={"اسم القناة":{title:text(name)},"المادة":{select:{name:subject}},"رابط القناة":{url:channelUrl||null},"اسم قائمة التشغيل":{rich_text:text(playlistName)},"رابط قائمة التشغيل":{url:playlistUrl||null},"ملاحظات":{rich_text:text(notes)}};
-    const page=await notion.pages.create({parent:{data_source_id:CHANNELS_DATA_SOURCE_ID},properties:props});
-    res.json({ok:true,id:page.id});
-  }catch(e){res.status(500).json({error:e.message});}
-});
+    const dataSourceId = await getChannelsDataSourceId();
 
+    const r = await notion.dataSources.query({
+      data_source_id: dataSourceId,
+      page_size: 100
+    });
+
+    const rows = r.results.map(page => {
+      const q = page.properties || {};
+
+      return {
+        id: page.id,
+
+        // المادة
+        subject: valueOf(q["المادة"]),
+
+        // اسم القناة
+        name: valueOf(q["اسم القناة"]),
+
+        // رابط القناة
+        channelUrl: valueOf(q["رابط القناة"]),
+
+        // اسم قائمة التشغيل
+        playlistName: valueOf(q["اسم قائمة التشغيل"]),
+
+        // رابط قائمة التشغيل
+        playlistUrl: valueOf(q["رابط قائمة التشغيل"]),
+
+        // الملاحظات
+        notes: valueOf(q["ملاحظات"])
+      };
+    });
+
+    res.json(rows);
+
+  } catch (error) {
+    console.error("Channels API error:", error);
+
+    res.status(500).json({
+      error: "تعذر تحميل القنوات وقوائم التشغيل.",
+      details: error.message
+    });
+  }
+});
 app.get("/api/progress", async (_req, res) => {
   try {
     if (!process.env.NOTION_TOKEN || !DATA_SOURCE_ID) return res.status(500).json({error:"Notion is not configured.",hint:"Create .env from .env.example and add NOTION_TOKEN."});

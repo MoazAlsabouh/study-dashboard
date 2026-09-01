@@ -90,70 +90,75 @@ loadLessons();
 
 async function loadChannels() {
   try {
-    const r = await fetch('/api/channels', {
-      cache: 'no-store'
+    const r = await fetch("/api/channels", {
+      cache: "no-store"
     });
 
-    if (!r.ok) return;
+    const data = await r.json();
 
-    const rows = await r.json();
+    if (!r.ok) {
+      throw new Error(data.details || data.error || "تعذر تحميل القنوات");
+    }
+
+    const rows = Array.isArray(data) ? data : [];
 
     $("channels").innerHTML = rows.map(x => `
       <article class="channel">
 
-        <!-- اسم المادة -->
-        <p class="channel-subject">
-          ${escapeHtml(x.subject)}
-        </p>
+        <div class="channel-subject">
+          ${escapeHtml(x.subject || "")}
+        </div>
 
-        <!-- اسم القناة -->
         ${
           x.channelUrl
             ? `
               <a
-                class="channel-link"
                 href="${escapeAttr(x.channelUrl)}"
                 target="_blank"
                 rel="noopener noreferrer"
+                class="channel-link"
               >
-                🎥 ${escapeHtml(x.name)}
+                🎥 ${escapeHtml(x.name || "")}
               </a>
             `
             : `
-              <h3>
-                🎥 ${escapeHtml(x.name)}
-              </h3>
+              <div class="channel-link">
+                🎥 ${escapeHtml(x.name || "")}
+              </div>
             `
         }
 
-        <!-- قائمة التشغيل إن وجدت -->
         ${
           x.playlistName
-            ? (
-                x.playlistUrl
-                  ? `
-                    <a
-                      class="playlist-link"
-                      href="${escapeAttr(x.playlistUrl)}"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      ▶ ${escapeHtml(x.playlistName)}
-                    </a>
-                  `
-                  : `
-                    <p class="playlist-name">
-                      ▶ ${escapeHtml(x.playlistName)}
-                    </p>
-                  `
-              )
-            : ''
+            ? x.playlistUrl
+              ? `
+                <a
+                  href="${escapeAttr(x.playlistUrl)}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="playlist-link"
+                >
+                  ▶ ${escapeHtml(x.playlistName)}
+                </a>
+              `
+              : `
+                <div class="playlist-link">
+                  ▶ ${escapeHtml(x.playlistName)}
+                </div>
+              `
+            : ""
         }
 
       </article>
-    `).join('');
+    `).join("");
 
-  } catch (e) {
-    console.error('تعذر تحميل القنوات:', e);
+  } catch (error) {
+    console.error("تعذر تحميل القنوات:", error);
+
+    $("channels").innerHTML = `
+      <div class="error-message">
+        تعذر تحميل القنوات وقوائم التشغيل.
+      </div>
+    `;
   }
 }
