@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>تسجيل الدخول • خريطة الدراسة</title><link rel="stylesheet" href="login.css">
+</head>
+<body>
+  <main class="login-shell">
+    <section class="login-card">
+      <div class="brand">🎓</div>
+      <span class="eyebrow">Study Dashboard</span>
+      <h1>مرحبًا بعودتك</h1>
+      <p>سجّل الدخول للوصول إلى لوحة الدراسة الخاصة بك.</p>
+      <form id="loginForm" autocomplete="on">
+        <label>البريد الإلكتروني<input id="email" name="email" type="email" autocomplete="username" required placeholder="البريد الإلكتروني"></label>
+        <label>كلمة السر<input id="password" name="password" type="password" autocomplete="current-password" required placeholder="كلمة السر"></label>
+        <button type="submit">دخول إلى لوحة الدراسة</button>
+        <div id="loginError" class="error" hidden></div>
+      </form>
+      <small>الوصول محمي بحساب مستخدم واحد.</small>
+    </section>
+  </main>
+  <script src="login.js"></script>
+</body>
+</html>

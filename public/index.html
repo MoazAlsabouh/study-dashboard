@@ -14,7 +14,7 @@
         <h1>🎓 خريطة الدراسة الذكية</h1>
         <p>العام الدراسي 2026/2027</p>
       </div>
-      <button id="refresh">↻ تحديث</button>
+      <div class="hero-actions"><button id="refresh">↻ تحديث</button><button id="logout" class="secondary">خروج</button></div>
     </header>
 
     <section class="overall card">
@@ -40,8 +40,14 @@
       <div id="subjects" class="grid"></div>
     </section>
 
-    <section class="card">
-      <div class="section-head"><div><h2>📖 الدروس</h2><p>سجّل إنجاز المراحل مباشرة من الموقع</p></div><select id="lessonSubject"><option value="all">كل المواد</option></select></div>
+    <section class="card lessons-card">
+      <div class="section-head"><div><h2>📖 الدروس</h2><p>الدروس مقسمة إلى وحدات لتصفحها خطوة بخطوة</p></div><select id="lessonSubject"><option value="all">كل المواد</option></select></div>
+      <div class="unit-toolbar">
+        <button id="prevUnit" class="secondary">→ الوحدة السابقة</button>
+        <div class="unit-current"><span id="unitCounter">الوحدة 1 من 1</span><strong id="unitTitle">—</strong></div>
+        <button id="nextUnit" class="secondary">الوحدة التالية ←</button>
+      </div>
+      <div id="unitProgress" class="unit-progress"></div>
       <div id="lessons" class="lessons"></div>
     </section>
 
