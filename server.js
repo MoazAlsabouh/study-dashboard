@@ -158,6 +158,10 @@ app.get("/api/progress", async (_req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Study dashboard: http://localhost:${port}`);
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Study dashboard: http://localhost:${port}`);
+  });
+}
+
+module.exports = app;
