@@ -88,6 +88,72 @@ $("logout").addEventListener("click", async ()=>{await fetch('/api/logout',{meth
 load();
 loadLessons();
 
-async function loadChannels(){try{const r=await fetch('/api/channels',{cache:'no-store'});if(!r.ok)return;const rows=await r.json();$("channels").innerHTML=rows.map(x=>`<article class="channel"><h3>🎥 ${escapeHtml(x.name)}</h3><p>${escapeHtml(x.subject)}${x.playlistName?' • '+escapeHtml(x.playlistName):''}</p>${x.channelUrl?`<a href="${escapeAttr(x.channelUrl)}" target="_blank" rel="noopener">رابط القناة</a>`:''}${x.playlistUrl?`<a href="${escapeAttr(x.playlistUrl)}" target="_blank" rel="noopener">قائمة التشغيل</a>`:''}</article>`).join('')}catch{}}
-$("channelForm").addEventListener('submit',async e=>{e.preventDefault();const r=await fetch('/api/channels',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(e.target).entries()))});if(!r.ok){alert('تعذر إضافة المصدر');return}e.target.reset();loadChannels()});
-loadChannels();
+async function loadChannels() {
+  try {
+    const r = await fetch('/api/channels', {
+      cache: 'no-store'
+    });
+
+    if (!r.ok) return;
+
+    const rows = await r.json();
+
+    $("channels").innerHTML = rows.map(x => `
+      <article class="channel">
+
+        <!-- اسم المادة -->
+        <p class="channel-subject">
+          ${escapeHtml(x.subject)}
+        </p>
+
+        <!-- اسم القناة -->
+        ${
+          x.channelUrl
+            ? `
+              <a
+                class="channel-link"
+                href="${escapeAttr(x.channelUrl)}"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                🎥 ${escapeHtml(x.name)}
+              </a>
+            `
+            : `
+              <h3>
+                🎥 ${escapeHtml(x.name)}
+              </h3>
+            `
+        }
+
+        <!-- قائمة التشغيل إن وجدت -->
+        ${
+          x.playlistName
+            ? (
+                x.playlistUrl
+                  ? `
+                    <a
+                      class="playlist-link"
+                      href="${escapeAttr(x.playlistUrl)}"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      ▶ ${escapeHtml(x.playlistName)}
+                    </a>
+                  `
+                  : `
+                    <p class="playlist-name">
+                      ▶ ${escapeHtml(x.playlistName)}
+                    </p>
+                  `
+              )
+            : ''
+        }
+
+      </article>
+    `).join('');
+
+  } catch (e) {
+    console.error('تعذر تحميل القنوات:', e);
+  }
+}
