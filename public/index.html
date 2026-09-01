@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>خريطة الدراسة 2026/2027</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="container">
+    <header class="hero">
+      <div>
+        <span class="eyebrow">Study Dashboard</span>
+        <h1>🎓 خريطة الدراسة الذكية</h1>
+        <p>العام الدراسي 2026/2027</p>
+      </div>
+      <button id="refresh">↻ تحديث</button>
+    </header>
+
+    <section class="overall card">
+      <div class="section-head">
+        <div>
+          <h2>الإنجاز العام</h2>
+          <p id="updated">جارٍ التحميل...</p>
+        </div>
+        <strong id="overall">0%</strong>
+      </div>
+      <div class="progress"><span id="overallBar"></span></div>
+      <div class="stats">
+        <div><b id="lessonCount">0</b><span>درسًا</span></div>
+        <div><b id="subjectCount">0</b><span>مواد</span></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-title">
+        <h2>📚 المواد</h2>
+        <select id="subjectFilter"><option value="all">كل المواد</option></select>
+      </div>
+      <div id="subjects" class="grid"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-head"><div><h2>📖 الدروس</h2><p>سجّل إنجاز المراحل مباشرة من الموقع</p></div><select id="lessonSubject"><option value="all">كل المواد</option></select></div>
+      <div id="lessons" class="lessons"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-head"><div><h2>🎥 القنوات وقوائم التشغيل</h2><p>أضف روابط الشرح لكل مادة</p></div></div>
+      <form id="channelForm" class="channel-form">
+        <input name="name" placeholder="اسم القناة" required>
+        <select name="subject" required><option value="">اختر المادة</option><option>الرياضيات</option><option>الفيزياء</option><option>الكيمياء</option><option>الأحياء</option><option>اللغة العربية</option><option>اللغة الإنجليزية</option><option>التربية الدينية</option></select>
+        <input name="channelUrl" type="url" placeholder="رابط القناة"><input name="playlistName" placeholder="اسم قائمة التشغيل"><input name="playlistUrl" type="url" placeholder="رابط قائمة التشغيل"><input name="notes" placeholder="ملاحظات"><button type="submit">＋ إضافة المصدر</button>
+      </form><div id="channels" class="channels"></div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <div>
+          <h2>🧭 مراحل الدراسة</h2>
+          <p>نسبة إتمام كل مرحلة على مستوى جميع الدروس</p>
+        </div>
+      </div>
+      <div id="stages" class="stages"></div>
+    </section>
+
+    <div id="error" class="error hidden"></div>
+    <footer>مصدر البيانات: Notion • آخر تحديث تلقائي عند فتح/تحديث الصفحة</footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
