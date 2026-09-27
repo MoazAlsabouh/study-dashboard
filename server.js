@@ -150,6 +150,7 @@ function valueOf(prop) {
   if (prop.type === "status") return prop.status?.name || "";
   if (prop.type === "checkbox") return !!prop.checkbox;
   if (prop.type === "number") return prop.number;
+  if (prop.type === "url") return prop.url || "";
   if (prop.type === "formula") return prop.formula?.number ?? prop.formula?.string ?? prop.formula?.boolean ?? null;
   return null;
 }
@@ -200,57 +201,57 @@ app.patch("/api/lessons/:id", async (req,res) => {
   } catch(e){res.status(500).json({error:e.message});}
 });
 
-app.get("/api/channels", async (_req,res) => {
-  try {
-    const r=await notion.dataSources.query({data_source_id:CHANNELS_DATA_SOURCE_ID,page_size:100});
-    res.json(r.results.map(page=>{const q=page.properties||{};return {id:page.id,name:valueOf(q["اسم القناة"]),subject:valueOf(q["المادة"]),channelUrl:valueOf(q["رابط القناة"]),playlistName:valueOf(q["اسم قائمة التشغيل"]),playlistUrl:valueOf(q["رابط قائمة التشغيل"]),notes:valueOf(q["ملاحظات"])};}));
-  } catch(e){res.status(500).json({error:e.message});}
-});
-
 app.get("/api/channels", async (_req, res) => {
   try {
     const dataSourceId = await getChannelsDataSourceId();
-
-    const r = await notion.dataSources.query({
-      data_source_id: dataSourceId,
-      page_size: 100
-    });
-
-    const rows = r.results.map(page => {
+    const rows = await queryAllDataSource(dataSourceId);
+    res.json(rows.map(page => {
       const q = page.properties || {};
-
       return {
         id: page.id,
-
-        // المادة
         subject: valueOf(q["المادة"]),
-
-        // اسم القناة
-        name: valueOf(q["اسم القناة"]),
-
-        // رابط القناة
+        name: valueOf(q["اسم القناة"] || Object.values(q).find(x => x.type === "title")),
         channelUrl: valueOf(q["رابط القناة"]),
-
-        // اسم قائمة التشغيل
         playlistName: valueOf(q["اسم قائمة التشغيل"]),
-
-        // رابط قائمة التشغيل
         playlistUrl: valueOf(q["رابط قائمة التشغيل"]),
-
-        // الملاحظات
         notes: valueOf(q["ملاحظات"])
       };
-    });
-
-    res.json(rows);
-
+    }));
   } catch (error) {
     console.error("Channels API error:", error);
+    res.status(500).json({ error: "تعذر تحميل القنوات وقوائم التشغيل.", details: error.message });
+  }
+});
 
-    res.status(500).json({
-      error: "تعذر تحميل القنوات وقوائم التشغيل.",
-      details: error.message
+app.post("/api/channels", async (req, res) => {
+  try {
+    const {name, subject, channelUrl, playlistName, playlistUrl, notes} = req.body || {};
+    if (!name || !subject) return res.status(400).json({error:"اسم القناة والمادة مطلوبان."});
+    const dataSourceId = await getChannelsDataSourceId();
+    const page = await notion.pages.create({
+      parent: { data_source_id: dataSourceId },
+      properties: {
+        "اسم القناة": titleProp(name),
+        "المادة": { select: { name: String(subject) } },
+        "رابط القناة": { url: channelUrl ? String(channelUrl) : null },
+        "اسم قائمة التشغيل": textProp(playlistName || ""),
+        "رابط قائمة التشغيل": { url: playlistUrl ? String(playlistUrl) : null },
+        "ملاحظات": textProp(notes || "")
+      }
     });
+    const q = page.properties || {};
+    res.json({
+      id: page.id,
+      subject: valueOf(q["المادة"]),
+      name: valueOf(q["اسم القناة"] || Object.values(q).find(x => x.type === "title")),
+      channelUrl: valueOf(q["رابط القناة"]),
+      playlistName: valueOf(q["اسم قائمة التشغيل"]),
+      playlistUrl: valueOf(q["رابط قائمة التشغيل"]),
+      notes: valueOf(q["ملاحظات"])
+    });
+  } catch (error) {
+    console.error("Channels create error:", error);
+    res.status(500).json({error:"تعذر حفظ المصدر في Notion.", details:error.message});
   }
 });
 

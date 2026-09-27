@@ -1,252 +1,349 @@
-const state = { data: null, lessonRows: [], unitIndex: 0 };
+const state = {
+  data: null,
+  lessons: [],
+  units: [],
+  unitIndex: 0,
+  weekly: [],
+  exams: [],
+  examTimer: null
+};
+
+const page = document.body.dataset.page;
 const $ = (id) => document.getElementById(id);
+const esc = (v = "") => String(v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));
+const attr = esc;
 
-function bar(percent, cls="") { return `<div class="progress ${cls}"><span style="width:${Math.max(0,Math.min(100,percent))}%"></span></div>`; }
-function escapeHtml(v="") { return String(v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "'":"&#039;"}[c])); }
-function escapeAttr(v="") { return escapeHtml(v); }
+const subjectsFallback = ["الرياضيات","الفيزياء","الكيمياء","الأحياء","اللغة العربية","اللغة الإنجليزية","التربية الدينية"];
 
-function renderSubjects() {
-  const filter = $("subjectFilter").value;
-  const rows = state.data.subjects.filter(x => filter === "all" || x.subject === filter);
-  $("subjects").innerHTML = rows.map(s => `<article class="subject"><div class="subject-top"><div><h3>${escapeHtml(s.subject)}</h3><p>${s.lessons} درس</p></div><div class="percent">${s.percent}%</div></div>${bar(s.percent,"mini-progress")}${Object.values(s.stages).map(x=>`<div class="stage-row"><span>${escapeHtml(x.label)}</span>${bar(x.percent)}<strong>${x.percent}%</strong></div>`).join("")}</article>`).join("");
+function bar(percent, cls = "") {
+  const p = Math.max(0, Math.min(100, Number(percent) || 0));
+  return `<div class="progress ${cls}"><span style="width:${p}%"></span></div>`;
 }
 
-function render() {
-  const d = state.data;
-  $("overall").textContent = `${d.overallPercent}%`;
-  $("overallBar").style.width = `${d.overallPercent}%`;
-  $("lessonCount").textContent = d.totalLessons;
-  $("subjectCount").textContent = d.subjects.length;
-  $("updated").textContent = `آخر تحديث: ${new Date(d.updatedAt).toLocaleString("ar-SY")}`;
-  $("subjectFilter").innerHTML = `<option value="all">كل المواد</option>` + d.subjects.map(s=>`<option value="${escapeAttr(s.subject)}">${escapeHtml(s.subject)}</option>`).join("");
-  $("stages").innerHTML = Object.values(d.stages).map(s=>`<div class="stage-box"><b>${s.percent}%</b><strong>${escapeHtml(s.label)}</strong><span>${s.done} من ${s.total} درس</span>${bar(s.percent)}</div>`).join("");
-  renderSubjects();
+function shell({title, subtitle = "", active = ""}, content) {
+  document.title = `${title} | خريطة الدراسة 2026/2027`;
+  document.getElementById("app").innerHTML = `
+    <main class="container">
+      <header class="topbar">
+        <a class="brand" href="index.html">
+          <span class="brand-mark">🎓</span>
+          <span><b>خريطة الدراسة الذكية</b><small>2026 / 2027</small></span>
+        </a>
+        <nav class="nav">
+          <a class="${active === "dashboard" ? "active" : ""}" href="index.html">الرئيسية</a>
+          <a class="${active === "subjects" ? "active" : ""}" href="subjects.html">المواد</a>
+          <a class="${active === "weekly" ? "active" : ""}" href="weekly.html">الجدول</a>
+          <a class="${active === "exams" ? "active" : ""}" href="exams.html">الامتحانات</a>
+          <a class="${active === "channels" ? "active" : ""}" href="channels.html">القنوات</a>
+        </nav>
+        <div class="top-actions"><button id="refresh" class="icon-btn" title="تحديث">↻</button><button id="logout" class="secondary">خروج</button></div>
+      </header>
+      <section class="page-heading">
+        <div><span class="eyebrow">Study Dashboard</span><h1>${title}</h1>${subtitle ? `<p>${subtitle}</p>` : ""}</div>
+      </section>
+      <div id="error" class="error hidden"></div>
+      ${content}
+      <footer>مصدر البيانات: Notion • آخر تحديث عند فتح أو تحديث الصفحة</footer>
+    </main>`;
+  $("logout").onclick = async () => { await fetch("/api/logout", {method:"POST"}); location.href = "/login.html"; };
+  $("refresh").onclick = () => location.reload();
 }
 
-async function load() {
-  $("error").classList.add("hidden"); $("refresh").disabled=true; $("refresh").textContent="جاري التحديث...";
-  try { const res=await fetch("/api/progress",{cache:"no-store"}); const data=await res.json(); if(!res.ok) throw new Error(data.hint||data.details||data.error||"تعذر تحميل البيانات"); state.data=data; render(); }
-  catch(e){$("error").textContent=`⚠️ ${e.message}`;$("error").classList.remove("hidden");}
-  finally{$("refresh").disabled=false;$("refresh").textContent="↻ تحديث";}
+async function api(url, options) {
+  const r = await fetch(url, {cache: "no-store", ...options});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.details || data.error || data.hint || "حدث خطأ غير متوقع");
+  return data;
 }
 
-function getUnits() {
-  const subject = $("lessonSubject").value;
-  const rows = state.lessonRows.filter(x => subject === "all" || x.subject === subject);
-  const units = [...new Set(rows.map(x => x.unit || "دروس بدون وحدة"))];
-  return { rows, units };
+function showError(error) {
+  const box = $("error");
+  if (!box) return;
+  box.textContent = `⚠️ ${error.message || error}`;
+  box.classList.remove("hidden");
 }
 
-function renderLessons() {
-  const { rows, units } = getUnits();
-  if (!units.length) { state.unitIndex=0; $("unitTitle").textContent="لا توجد دروس"; $("unitCounter").textContent="0 وحدات"; $("lessons").innerHTML='<div class="empty">لا توجد دروس لهذه المادة.</div>'; $("unitProgress").innerHTML=""; updateUnitButtons(0); return; }
-  state.unitIndex = Math.max(0, Math.min(state.unitIndex, units.length-1));
-  const unit = units[state.unitIndex];
-  const unitRows = rows.filter(x => (x.unit || "دروس بدون وحدة") === unit);
-  const completed = unitRows.reduce((sum,x)=>sum+x.stages.filter(s=>s.checked).length,0);
-  const total = unitRows.length * 5;
-  const percent = total ? Math.round(completed/total*100) : 0;
-  $("unitCounter").textContent = `الوحدة ${state.unitIndex+1} من ${units.length}`;
-  $("unitTitle").textContent = unit;
-  $("unitProgress").innerHTML = `<div><span>إنجاز الوحدة</span><strong>${percent}%</strong></div>${bar(percent)}`;
-  $("lessons").innerHTML = unitRows.map(x=>`<div class="lesson-row"><div class="lesson-info"><strong>${escapeHtml(x.lesson)}</strong><p>${escapeHtml(x.subject)}${x.page ? ` • صفحة ${escapeHtml(x.page)}` : ""}</p></div><div class="checks">${x.stages.map(s=>`<label><input type="checkbox" ${s.checked?'checked':''} data-id="${x.id}" data-prop="${escapeAttr(s.property)}"> ${escapeHtml(s.label)}</label>`).join("")}</div></div>`).join("");
-  document.querySelectorAll('#lessons input').forEach(cb=>cb.addEventListener('change', async e=>{
-    const el=e.target;
-    const r=await fetch('/api/lessons/'+el.dataset.id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({property:el.dataset.prop,checked:el.checked})});
-    if(!r.ok){el.checked=!el.checked;alert('تعذر حفظ التغيير في Notion');return;}
-    await load(); await loadLessons(false);
-  }));
-  updateUnitButtons(units.length);
+function hideError() { $("error")?.classList.add("hidden"); }
+
+async function loadProgress() {
+  state.data = await api("/api/progress");
+  return state.data;
 }
 
-function updateUnitButtons(count) {
-  $("prevUnit").disabled = count === 0 || state.unitIndex === 0;
-  $("nextUnit").disabled = count === 0 || state.unitIndex >= count-1;
+function countdown(at) {
+  const diff = new Date(at).getTime() - Date.now();
+  if (!Number.isFinite(diff) || diff <= 0) return {expired:true, text:"انتهى الموعد"};
+  const total = Math.floor(diff / 1000);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return {expired:false, text:`${days} يوم • ${hours} س • ${minutes} د • ${seconds} ث`, days, hours, minutes, seconds};
 }
 
-async function loadLessons(resetUnit=true) {
-  try {
-    const r=await fetch("/api/lessons",{cache:"no-store"});
-    if(!r.ok) throw new Error("تعذر تحميل الدروس");
-    state.lessonRows=await r.json();
-    const ss=[...new Set(state.lessonRows.map(x=>x.subject).filter(Boolean))];
-    const current=$("lessonSubject").value;
-    $("lessonSubject").innerHTML='<option value="all">كل المواد</option>'+ss.map(s=>`<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`).join('');
-    if(ss.includes(current)) $("lessonSubject").value=current;
-    if(resetUnit) state.unitIndex=0;
-    renderLessons();
-  } catch(e) { $("error").textContent=`⚠️ ${e.message}`; $("error").classList.remove("hidden"); }
+function formatDate(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("ar-SY", {dateStyle:"medium", timeStyle:"short"});
 }
 
-$("refresh").addEventListener("click", load);
-$("subjectFilter").addEventListener("change", renderSubjects);
-$("lessonSubject").addEventListener("change", ()=>{state.unitIndex=0;renderLessons();});
-$("prevUnit").addEventListener("click", ()=>{if(state.unitIndex>0){state.unitIndex--;renderLessons();window.scrollTo({top:document.querySelector('.lessons-card').offsetTop-20,behavior:'smooth'});}});
-$("nextUnit").addEventListener("click", ()=>{const {units}=getUnits();if(state.unitIndex<units.length-1){state.unitIndex++;renderLessons();window.scrollTo({top:document.querySelector('.lessons-card').offsetTop-20,behavior:'smooth'});}});
-$("logout").addEventListener("click", async ()=>{await fetch('/api/logout',{method:'POST'});location.href='/login.html';});
+function renderDashboard(d, exams) {
+  const upcoming = exams
+    .filter(x => x.at && new Date(x.at).getTime() > Date.now())
+    .sort((a,b) => new Date(a.at) - new Date(b.at))[0];
 
-load();
-loadLessons();
-
-async function loadChannels() {
-  try {
-    const r = await fetch("/api/channels", {
-      cache: "no-store"
-    });
-
-    const data = await r.json();
-
-    if (!r.ok) {
-      throw new Error(data.details || data.error || "تعذر تحميل القنوات");
-    }
-
-    const rows = Array.isArray(data) ? data : [];
-
-    $("channels").innerHTML = rows.map(x => `
-      <article class="channel">
-
-        <div class="channel-subject">
-          ${escapeHtml(x.subject || "")}
+  shell({title:"لوحة التحكم", subtitle:"ملخص سريع للتقدم العام وموعد الامتحان القادم.", active:"dashboard"}, `
+    <section class="hero-grid">
+      <article class="card overall-card">
+        <div class="card-kicker">التقدم العام</div>
+        <div class="overall-value">${d.overallPercent}%</div>
+        ${bar(d.overallPercent)}
+        <div class="stats-row">
+          <div><b>${d.totalLessons}</b><span>درسًا</span></div>
+          <div><b>${d.subjects.length}</b><span>مواد</span></div>
+          <div><b>${Object.values(d.stages).reduce((s,x)=>s+x.done,0)}</b><span>مراحل منجزة</span></div>
         </div>
-
-        ${
-          x.channelUrl
-            ? `
-              <a
-                href="${escapeAttr(x.channelUrl)}"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="channel-link"
-              >
-                🎥 ${escapeHtml(x.name || "")}
-              </a>
-            `
-            : `
-              <div class="channel-link">
-                🎥 ${escapeHtml(x.name || "")}
-              </div>
-            `
-        }
-
-        ${
-          x.playlistName
-            ? x.playlistUrl
-              ? `
-                <a
-                  href="${escapeAttr(x.playlistUrl)}"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="playlist-link"
-                >
-                  ▶ ${escapeHtml(x.playlistName)}
-                </a>
-              `
-              : `
-                <div class="playlist-link">
-                  ▶ ${escapeHtml(x.playlistName)}
-                </div>
-              `
-            : ""
-        }
-
       </article>
-    `).join("");
+      <article class="card exam-hero">
+        <div class="card-kicker">⏳ الامتحان القادم</div>
+        ${upcoming ? `
+          <h2>${esc(upcoming.name || upcoming.subject)}</h2>
+          <p class="muted">${esc(upcoming.subject)} • ${formatDate(upcoming.at)}</p>
+          <div id="mainCountdown" class="countdown-big">${countdown(upcoming.at).text}</div>
+          <a class="button" href="exams.html">عرض كل الامتحانات</a>
+        ` : `<div class="empty compact">لا يوجد امتحان قادم مسجل حاليًا.<br><a href="exams.html">أضف أول امتحان</a></div>`}
+      </article>
+    </section>
 
-  } catch (error) {
-    console.error("تعذر تحميل القنوات:", error);
+    <section class="section-block">
+      <div class="section-title"><div><h2>📊 نظرة سريعة على المواد</h2><p>اضغط على أي مادة لفتح صفحتها وتفاصيل الوحدات والدروس.</p></div><a class="button secondary" href="subjects.html">كل المواد</a></div>
+      <div class="subject-grid">${d.subjects.map(s => `
+        <a class="subject-card" href="subject.html?name=${encodeURIComponent(s.subject)}">
+          <div class="subject-card-head"><span>${esc(s.subject)}</span><strong>${s.percent}%</strong></div>
+          ${bar(s.percent, "mini-progress")}
+          <small>${s.lessons} درس</small>
+        </a>`).join("")}</div>
+    </section>
 
-    $("channels").innerHTML = `
-      <div class="error-message">
-        تعذر تحميل القنوات وقوائم التشغيل.
-      </div>
-    `;
+    <section class="section-block">
+      <div class="section-title"><div><h2>🧭 مراحل الدراسة</h2><p>تقدم كل مرحلة على مستوى جميع الدروس.</p></div></div>
+      <div class="stage-grid">${Object.values(d.stages).map(s => `
+        <article class="stage-card"><strong>${s.percent}%</strong><b>${esc(s.label)}</b><span>${s.done} من ${s.total} درس</span>${bar(s.percent)}</article>`).join("")}</div>
+    </section>`);
+
+  if (upcoming) {
+    const update = () => { const el = $("mainCountdown"); if (el) el.textContent = countdown(upcoming.at).text; };
+    update();
+    state.examTimer = setInterval(update, 1000);
   }
 }
 
-// Weekly planner and exam countdowns are stored in Notion, not localStorage.
-const dayNames=["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
-function localDateKey(d=new Date()){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+async function dashboardPage() {
+  try {
+    const [d, exams] = await Promise.all([loadProgress(), api("/api/exams")]);
+    renderDashboard(d, exams);
+  } catch (e) {
+    shell({title:"لوحة التحكم", subtitle:"ملخص الدراسة لعام 2026/2027.", active:"dashboard"}, `<div class="card empty">تعذر تحميل البيانات.</div>`);
+    showError(e);
+  }
+}
 
-async function loadWeekly(){
-  const r=await fetch("/api/weekly",{cache:"no-store"});
-  const data=await r.json();
-  if(!r.ok) throw new Error(data.error||"تعذر تحميل جدول الأسبوع");
-  renderWeekly(data);
+async function subjectsPage() {
+  shell({title:"المواد", subtitle:"كل مادة لها صفحة مستقلة حتى تبقى الدراسة مرتبة وواضحة.", active:"subjects"}, `<div id="subjectPageGrid" class="subject-grid large"></div>`);
+  try {
+    const d = await loadProgress();
+    $("subjectPageGrid").innerHTML = d.subjects.map(s => `
+      <a class="subject-card detailed" href="subject.html?name=${encodeURIComponent(s.subject)}">
+        <div class="subject-card-head"><span>${esc(s.subject)}</span><strong>${s.percent}%</strong></div>
+        ${bar(s.percent)}
+        <div class="subject-meta"><span>${s.lessons} درس</span><span>فتح المادة ←</span></div>
+        <div class="tiny-stages">${Object.values(s.stages).map(x=>`<span>${esc(x.label)}: <b>${x.percent}%</b></span>`).join("")}</div>
+      </a>`).join("");
+  } catch (e) { showError(e); }
 }
-function renderWeekly(rows=[]){
-  const today=dayNames[new Date().getDay()], date=localDateKey();
-  const todays=rows.filter(x=>x.day===today);
-  const done=todays.filter(x=>x.done && x.doneDate===date).length;
-  $("weekly").innerHTML=`<h3>${today} — ${date}</h3><p>إنجاز اليوم: ${done} / ${todays.length} (${todays.length?Math.round(done/todays.length*100):0}%)</p>`+
-    (rows.length ? dayNames.map(day=>{
-      const items=rows.filter(x=>x.day===day);
-      return items.length ? `<h3>${day}</h3>`+items.map(x=>`<article class="channel"><label><input type="checkbox" data-week-id="${x.id}" ${x.done?'checked':''}> <b>${escapeHtml(x.subject)}</b> — ${escapeHtml(x.task)} ${x.time?`(${escapeHtml(x.time)})`:""}</label> <button class="secondary" data-delweek-id="${x.id}">حذف</button></article>`).join("") : "";
-    }).join("") : '<p class="empty">لم تضف حصصًا بعد.</p>');
-  document.querySelectorAll("[data-week-id]").forEach(el=>el.onchange=async()=>{
-    const r=await fetch(`/api/weekly/${el.dataset.weekId}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({done:el.checked})});
-    if(!r.ok){el.checked=!el.checked;alert("تعذر حفظ التغيير في Notion");return;}
-    await loadWeekly();
-  });
-  document.querySelectorAll("[data-delweek-id]").forEach(el=>el.onclick=async()=>{
-    if(!confirm("حذف هذه الحصة؟")) return;
-    const r=await fetch(`/api/weekly/${el.dataset.delweekId}`,{method:"DELETE"});
-    if(!r.ok){alert("تعذر حذف الحصة من Notion");return;}
-    await loadWeekly();
-  });
-}
-$("weeklyForm").addEventListener("submit",async e=>{
-  e.preventDefault();
-  const f=new FormData(e.target);
-  const body=Object.fromEntries(f.entries());
-  const r=await fetch("/api/weekly",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  if(!r.ok){const x=await r.json();alert(x.error||"تعذر الحفظ");return;}
-  e.target.reset(); await loadWeekly();
-});
 
-async function loadExams(){
-  const r=await fetch("/api/exams",{cache:"no-store"});
-  const data=await r.json();
-  if(!r.ok) throw new Error(data.error||"تعذر تحميل الامتحانات");
-  renderExams(data);
+function subjectFromUrl() { return new URLSearchParams(location.search).get("name") || ""; }
+
+function renderSubjectPage(d, subjectName) {
+  const subject = d.subjects.find(x => x.subject === subjectName);
+  if (!subject) {
+    shell({title:"المادة غير موجودة", subtitle:"اختر مادة من قائمة المواد.", active:"subjects"}, `<div class="card empty"><a class="button" href="subjects.html">العودة إلى المواد</a></div>`);
+    return;
+  }
+  shell({title:subject.subject, subtitle:`${subject.lessons} درس • إنجاز المادة ${subject.percent}%`, active:"subjects"}, `
+    <section class="subject-summary card">
+      <div><span class="card-kicker">تقدم المادة</span><strong class="summary-percent">${subject.percent}%</strong></div>
+      <div class="summary-progress">${bar(subject.percent)}<small>يمكنك فتح الوحدات والتنقل بينها دون ازدحام الصفحة.</small></div>
+    </section>
+    <section class="stage-grid compact-stages">${Object.values(subject.stages).map(s=>`<article class="stage-card"><strong>${s.percent}%</strong><b>${esc(s.label)}</b><span>${s.done} من ${s.total}</span>${bar(s.percent)}</article>`).join("")}</section>
+    <section class="card lessons-card">
+      <div class="section-title"><div><h2>📖 وحدات المادة</h2><p>نعرض وحدة واحدة في كل مرة لتكون المتابعة أسلس.</p></div><a class="button secondary" href="subjects.html">← كل المواد</a></div>
+      <div class="unit-toolbar"><button id="prevUnit" class="secondary">→ السابقة</button><div class="unit-current"><span id="unitCounter">—</span><strong id="unitTitle">—</strong></div><button id="nextUnit" class="secondary">التالية ←</button></div>
+      <div id="unitProgress"></div>
+      <div id="lessons" class="lessons"></div>
+    </section>
+    <section class="card"><div class="section-title"><div><h2>🎥 مصادر هذه المادة</h2><p>القنوات وقوائم التشغيل المرتبطة بالمادة.</p></div><a class="button secondary" href="channels.html">إدارة المصادر</a></div><div id="subjectChannels" class="channels"></div></section>`);
 }
-function renderExams(rows=[]){
-  $("exams").innerHTML=rows.length ? rows.map(x=>{
-    const ms=new Date(x.at)-Date.now();
-    if(ms<=0) return `<article class="channel"><h3>${escapeHtml(x.subject)}${x.name?` — ${escapeHtml(x.name)}`:""} </h3><p>انتهى موعد الامتحان</p><button data-delexam-id="${x.id}" class="secondary">حذف</button></article>`;
-    let sec=Math.floor(ms/1000), days=Math.floor(sec/86400); sec-=days*86400;
-    let hours=Math.floor(sec/3600); sec-=hours*3600;
-    let mins=Math.floor(sec/60); sec%=60;
-    return `<article class="channel"><h3>${escapeHtml(x.subject)} ${x.name?`— ${escapeHtml(x.name)}`:""}</h3><p>${new Date(x.at).toLocaleString("ar-SY")}</p><strong>${days} يوم • ${hours} ساعة • ${mins} دقيقة • ${sec} ثانية</strong><br><button data-delexam-id="${x.id}" class="secondary">حذف</button></article>`;
-  }).join("") : '<p class="empty">لم تضف امتحانات بعد.</p>';
-  document.querySelectorAll("[data-delexam-id]").forEach(el=>el.onclick=async()=>{
-    if(!confirm("حذف هذا الامتحان؟")) return;
-    const r=await fetch(`/api/exams/${el.dataset.delexamId}`,{method:"DELETE"});
-    if(!r.ok){alert("تعذر حذف الامتحان من Notion");return;}
-    await loadExams();
+
+function getUnitsForSubject(subjectName) {
+  const rows = state.lessons.filter(x => x.subject === subjectName);
+  const units = [...new Set(rows.map(x => x.unit || "دروس بدون وحدة"))];
+  return {rows, units};
+}
+
+function renderLessons(subjectName) {
+  const {rows, units} = getUnitsForSubject(subjectName);
+  if (!units.length) {
+    $("unitCounter").textContent = "لا توجد وحدات";
+    $("unitTitle").textContent = "—";
+    $("unitProgress").innerHTML = "";
+    $("lessons").innerHTML = `<div class="empty">لا توجد دروس مسجلة لهذه المادة.</div>`;
+    $("prevUnit").disabled = $("nextUnit").disabled = true;
+    return;
+  }
+  state.unitIndex = Math.max(0, Math.min(state.unitIndex, units.length - 1));
+  const unit = units[state.unitIndex];
+  const unitRows = rows.filter(x => (x.unit || "دروس بدون وحدة") === unit);
+  const checks = unitRows.reduce((sum,x)=>sum+x.stages.filter(s=>s.checked).length,0);
+  const total = unitRows.length * 5;
+  const percent = total ? Math.round(checks / total * 100) : 0;
+  $("unitCounter").textContent = `الوحدة ${state.unitIndex + 1} من ${units.length}`;
+  $("unitTitle").textContent = unit;
+  $("unitProgress").innerHTML = `<div class="unit-progress-head"><span>إنجاز الوحدة</span><strong>${percent}%</strong></div>${bar(percent)}`;
+  $("lessons").innerHTML = unitRows.map(x=>`<article class="lesson-row"><div class="lesson-info"><strong>${esc(x.lesson)}</strong><p>${x.page ? `صفحة ${esc(x.page)}` : ""}</p></div><div class="checks">${x.stages.map(s=>`<label><input type="checkbox" ${s.checked ? "checked" : ""} data-id="${attr(x.id)}" data-prop="${attr(s.property)}"> ${esc(s.label)}</label>`).join("")}</div></article>`).join("");
+  $("prevUnit").disabled = state.unitIndex === 0;
+  $("nextUnit").disabled = state.unitIndex >= units.length - 1;
+  document.querySelectorAll("#lessons input[data-id]").forEach(cb => cb.onchange = async e => {
+    const el = e.target;
+    try {
+      await api(`/api/lessons/${encodeURIComponent(el.dataset.id)}`, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify({property:el.dataset.prop, checked:el.checked})});
+      const old = state.unitIndex;
+      await loadProgress();
+      await loadLessonsForSubject(subjectName, false);
+      state.unitIndex = old;
+      renderLessons(subjectName);
+    } catch (err) { el.checked = !el.checked; showError(err); }
   });
 }
-$("examForm").addEventListener("submit",async e=>{
-  e.preventDefault();
-  const f=new FormData(e.target);
-  const date=f.get("date"), time=f.get("time");
-  const r=await fetch("/api/exams",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({subject:f.get("subject"),name:f.get("name"),at:`${date}T${time}`})});
-  if(!r.ok){const x=await r.json();alert(x.error||"تعذر الحفظ");return;}
-  e.target.reset(); await loadExams();
-});
 
-async function migrateOldLocalData(){
-  try{
-    const weekly=JSON.parse(localStorage.getItem("study_weekly")||"[]");
-    const exams=JSON.parse(localStorage.getItem("study_exams")||"[]");
-    if(!weekly.length && !exams.length) return;
-    const r=await fetch("/api/local-migrate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({weekly,exams})});
-    if(r.ok){
-      localStorage.removeItem("study_weekly");
-      localStorage.removeItem("study_exams");
-    }
-  }catch(e){console.warn("Local data migration skipped:",e);}
+async function loadLessonsForSubject(subjectName, reset = true) {
+  state.lessons = await api("/api/lessons");
+  if (reset) state.unitIndex = 0;
+  renderLessons(subjectName);
 }
-loadWeekly().catch(e=>{ $("error").textContent=`⚠️ ${e.message}`;$("error").classList.remove("hidden"); });
-loadExams().catch(e=>{ $("error").textContent=`⚠️ ${e.message}`;$("error").classList.remove("hidden"); });
-migrateOldLocalData().then(()=>Promise.all([loadWeekly(),loadExams()])).catch(()=>{});
-setInterval(()=>loadExams().catch(()=>{}),1000);
+
+async function renderSubjectChannels(subjectName) {
+  const rows = (await api("/api/channels")).filter(x => x.subject === subjectName);
+  $("subjectChannels").innerHTML = rows.length ? rows.map(channelCard).join("") : `<div class="empty">لا توجد مصادر مسجلة لهذه المادة حتى الآن.</div>`;
+}
+
+function channelCard(x) {
+  return `<article class="channel"><span class="tag">${esc(x.subject || "")}</span><h3>${esc(x.name || "قناة بدون اسم")}</h3>${x.channelUrl ? `<a href="${attr(x.channelUrl)}" target="_blank" rel="noopener noreferrer">🎥 فتح القناة</a>` : ""}${x.playlistName ? (x.playlistUrl ? `<a href="${attr(x.playlistUrl)}" target="_blank" rel="noopener noreferrer">▶ ${esc(x.playlistName)}</a>` : `<span class="source-note">▶ ${esc(x.playlistName)}</span>`) : ""}${x.notes ? `<p>${esc(x.notes)}</p>` : ""}</article>`;
+}
+
+async function subjectPage() {
+  const subjectName = subjectFromUrl();
+  try {
+    const d = await loadProgress();
+    renderSubjectPage(d, subjectName);
+    if (!d.subjects.some(x => x.subject === subjectName)) return;
+    await loadLessonsForSubject(subjectName);
+    await renderSubjectChannels(subjectName);
+    $("prevUnit").onclick = () => { if (state.unitIndex > 0) { state.unitIndex--; renderLessons(subjectName); } };
+    $("nextUnit").onclick = () => { const {units} = getUnitsForSubject(subjectName); if (state.unitIndex < units.length - 1) { state.unitIndex++; renderLessons(subjectName); } };
+  } catch (e) {
+    if (!document.getElementById("app").innerHTML) shell({title:"المادة", active:"subjects"}, "");
+    showError(e);
+  }
+}
+
+function weeklyForm() {
+  return `<form id="weeklyForm" class="form-grid"><select name="day" required>${["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"].map(x=>`<option>${x}</option>`).join("")}</select><input name="subject" placeholder="المادة" required><input name="task" placeholder="المهمة / الدرس" required><input name="time" type="time" aria-label="الوقت"><button class="button" type="submit">＋ إضافة</button></form>`;
+}
+
+function renderWeekly(rows) {
+  const today = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"][new Date().getDay()];
+  $("weeklyList").innerHTML = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"].map(day => {
+    const items = rows.filter(x=>x.day===day);
+    if (!items.length) return "";
+    return `<section class="day-block ${day===today ? "today" : ""}"><div class="day-head"><h3>${day}</h3><span>${items.filter(x=>x.done).length}/${items.length} منجز</span></div>${items.map(x=>`<article class="task-row"><label><input type="checkbox" data-week-id="${attr(x.id)}" ${x.done ? "checked" : ""}><span><b>${esc(x.subject)}</b> — ${esc(x.task)}${x.time ? ` <small>(${esc(x.time)})</small>` : ""}</span></label><button class="danger-link" data-delweek-id="${attr(x.id)}">حذف</button></article>`).join("")}</section>`;
+  }).join("") || `<div class="empty">لم تضف أي مهام بعد.</div>`;
+  document.querySelectorAll("[data-week-id]").forEach(el => el.onchange = async () => {
+    try { await api(`/api/weekly/${el.dataset.weekId}`, {method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({done:el.checked})}); state.weekly=await api("/api/weekly"); renderWeekly(state.weekly); }
+    catch(e){el.checked=!el.checked;showError(e);}
+  });
+  document.querySelectorAll("[data-delweek-id]").forEach(el => el.onclick = async () => {
+    if (!confirm("حذف هذه المهمة؟")) return;
+    try { await api(`/api/weekly/${el.dataset.delweekId}`, {method:"DELETE"}); state.weekly=await api("/api/weekly"); renderWeekly(state.weekly); } catch(e){showError(e);}
+  });
+}
+
+async function weeklyPage() {
+  shell({title:"الجدول الأسبوعي", subtitle:"عدّل جدولك هنا وسيُحفظ مباشرة في Notion.", active:"weekly"}, `<section class="card">${weeklyForm()}</section><div id="weeklyList" class="days"></div>`);
+  try {
+    state.weekly = await api("/api/weekly");
+    renderWeekly(state.weekly);
+    $("weeklyForm").onsubmit = async e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      try { await api("/api/weekly", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({day:f.get("day"),subject:f.get("subject"),task:f.get("task"),time:f.get("time")})}); e.target.reset(); state.weekly=await api("/api/weekly"); renderWeekly(state.weekly); }
+      catch(err){showError(err);}
+    };
+  } catch(e){showError(e);}
+}
+
+function examCard(x) {
+  return `<article class="exam-card"><div><span class="tag">${esc(x.subject)}</span><h3>${esc(x.name || x.subject)}</h3><p>${formatDate(x.at)}</p></div><div class="exam-count" data-countdown="${attr(x.at)}">${countdown(x.at).text}</div><button class="danger-link" data-delexam-id="${attr(x.id)}">حذف</button></article>`;
+}
+
+function renderExams(rows) {
+  const sorted = [...rows].sort((a,b)=>new Date(a.at)-new Date(b.at));
+  $("examList").innerHTML = sorted.length ? sorted.map(examCard).join("") : `<div class="empty">لا توجد امتحانات مسجلة.</div>`;
+  document.querySelectorAll("[data-delexam-id]").forEach(el => el.onclick = async () => {
+    if (!confirm("حذف هذا الامتحان؟")) return;
+    try { await api(`/api/exams/${el.dataset.delexamId}`, {method:"DELETE"}); state.exams=await api("/api/exams"); renderExams(state.exams); } catch(e){showError(e);}
+  });
+}
+
+function updateExamTimers() { document.querySelectorAll("[data-countdown]").forEach(el => el.textContent = countdown(el.dataset.countdown).text); }
+
+async function examsPage() {
+  shell({title:"الامتحانات", subtitle:"كل المواعيد محفوظة في Notion، والعد التنازلي يتحدث تلقائيًا.", active:"exams"}, `<section class="card"><form id="examForm" class="form-grid"><input name="subject" placeholder="المادة" required><input name="name" placeholder="اسم الامتحان"><input name="date" type="date" required><input name="time" type="time" required><button class="button" type="submit">＋ إضافة امتحان</button></form></section><div id="examList" class="exam-list"></div>`);
+  try {
+    state.exams = await api("/api/exams");
+    renderExams(state.exams);
+    $("examForm").onsubmit = async e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      try { await api("/api/exams", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({subject:f.get("subject"),name:f.get("name"),at:`${f.get("date")}T${f.get("time")}`})}); e.target.reset(); state.exams=await api("/api/exams"); renderExams(state.exams); }
+      catch(err){showError(err);}
+    };
+    setInterval(updateExamTimers, 1000);
+  } catch(e){showError(e);}
+}
+
+function channelsForm() {
+  return `<form id="channelForm" class="form-grid six"><input name="name" placeholder="اسم القناة" required><select name="subject" required><option value="">اختر المادة</option>${subjectsFallback.map(x=>`<option>${x}</option>`).join("")}</select><input name="channelUrl" type="url" placeholder="رابط القناة"><input name="playlistName" placeholder="اسم قائمة التشغيل"><input name="playlistUrl" type="url" placeholder="رابط قائمة التشغيل"><input name="notes" placeholder="ملاحظات"><button class="button" type="submit">＋ إضافة المصدر</button></form>`;
+}
+
+async function channelsPage() {
+  shell({title:"القنوات وقوائم التشغيل", subtitle:"اجمع مصادر الشرح في مكان واحد، ويمكنك أيضًا فتحها من صفحة كل مادة.", active:"channels"}, `<section class="card">${channelsForm()}</section><div id="channelList" class="channels large"></div>`);
+  try {
+    const render = async () => { const rows=await api("/api/channels"); $("channelList").innerHTML=rows.length ? rows.map(channelCard).join("") : `<div class="empty">لا توجد مصادر بعد.</div>`; };
+    await render();
+    $("channelForm").onsubmit = async e => {
+      e.preventDefault(); const f=new FormData(e.target);
+      try { await api("/api/channels", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.fromEntries(f.entries()))}); e.target.reset(); await render(); }
+      catch(err){showError(err);}
+    };
+  } catch(e){showError(e);}
+}
+
+(async function init(){
+  hideError();
+  if (page === "dashboard") return dashboardPage();
+  if (page === "subjects") return subjectsPage();
+  if (page === "subject") return subjectPage();
+  if (page === "weekly") return weeklyPage();
+  if (page === "exams") return examsPage();
+  if (page === "channels") return channelsPage();
+})();
