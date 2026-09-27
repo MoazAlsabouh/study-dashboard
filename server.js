@@ -23,11 +23,8 @@ if (!process.env.NOTION_TOKEN) {
 
 const notion = new Client({ auth: process.env.NOTION_TOKEN });
 const DATA_SOURCE_ID = process.env.NOTION_DATA_SOURCE_ID;
-const CHANNELS_DATA_SOURCE_ID =
-  (process.env.NOTION_CHANNELS_DATA_SOURCE_ID || "").trim();
-
-const CHANNELS_DATABASE_ID =
-  (process.env.NOTION_CHANNELS_DATABASE_ID || "").trim();
+const CHANNELS_DATA_SOURCE_ID = process.env.NOTION_CHANNELS_DATA_SOURCE_ID;
+const CHANNELS_DATABASE_ID = process.env.NOTION_CHANNELS_DATABASE_ID;
 
 async function getChannelsDataSourceId() {
   // إذا تم تحديد Data Source ID مباشرة، استخدمه.
@@ -144,33 +141,15 @@ app.use(requireAuth);
 app.use(express.static(path.join(__dirname, "public"), { index: false }));
 
 function valueOf(prop) {
-  if (!prop) return "";
-
-  if (prop.type === "title") {
-    return prop.title?.map(x => x.plain_text || "").join("") || "";
-  }
-
-  if (prop.type === "rich_text") {
-    return prop.rich_text?.map(x => x.plain_text || "").join("") || "";
-  }
-
-  if (prop.type === "select") {
-    return prop.select?.name || "";
-  }
-
-  if (prop.type === "url") {
-    return prop.url || "";
-  }
-
-  if (prop.type === "checkbox") {
-    return !!prop.checkbox;
-  }
-
-  if (prop.type === "number") {
-    return prop.number ?? "";
-  }
-
-  return "";
+  if (!prop) return null;
+  if (prop.type === "title") return prop.title?.map(x => x.plain_text).join("") || "";
+  if (prop.type === "rich_text") return prop.rich_text?.map(x => x.plain_text).join("") || "";
+  if (prop.type === "select") return prop.select?.name || "";
+  if (prop.type === "status") return prop.status?.name || "";
+  if (prop.type === "checkbox") return !!prop.checkbox;
+  if (prop.type === "number") return prop.number;
+  if (prop.type === "formula") return prop.formula?.number ?? prop.formula?.string ?? prop.formula?.boolean ?? null;
+  return null;
 }
 
 function toLesson(page) {
@@ -219,199 +198,59 @@ app.patch("/api/lessons/:id", async (req,res) => {
   } catch(e){res.status(500).json({error:e.message});}
 });
 
-async function getChannelsDataSourceId() {
-  if (!CHANNELS_DATA_SOURCE_ID && !CHANNELS_DATABASE_ID) {
-    throw new Error(
-      "لم يتم إعداد NOTION_CHANNELS_DATA_SOURCE_ID أو NOTION_CHANNELS_DATABASE_ID في Vercel."
-    );
-  }
-
-  // إذا كان لدينا Data Source ID مباشر
-  if (CHANNELS_DATA_SOURCE_ID) {
-    try {
-      await notion.dataSources.retrieve({
-        data_source_id: CHANNELS_DATA_SOURCE_ID
-      });
-
-      return CHANNELS_DATA_SOURCE_ID;
-    } catch (_) {
-      // ربما القيمة الموجودة هي Database ID وليس Data Source ID
-    }
-  }
-
-  // استخدام Database ID لاستخراج Data Source ID
-  const databaseId =
-    CHANNELS_DATABASE_ID || CHANNELS_DATA_SOURCE_ID;
-
-  const database = await notion.databases.retrieve({
-    database_id: databaseId
-  });
-
-  const sources = Array.isArray(database.data_sources)
-    ? database.data_sources
-    : [];
-
-  if (!sources.length) {
-    throw new Error(
-      "لم يتم العثور على Data Source داخل قاعدة بيانات القنوات. تأكد من مشاركة قاعدة البيانات مع Notion Integration."
-    );
-  }
-
-  const preferred = sources.find(
-    x => x.name === "القنوات وقوائم التشغيل"
-  );
-
-  return (preferred || sources[0]).id;
-}
-
-async function getAllChannels() {
-  const dataSourceId = await getChannelsDataSourceId();
-
-  let results = [];
-  let cursor;
-
-  do {
-    const response = await notion.dataSources.query({
-      data_source_id: dataSourceId,
-      page_size: 100,
-      ...(cursor ? { start_cursor: cursor } : {})
-    });
-
-    results.push(...response.results);
-
-    cursor = response.has_more
-      ? response.next_cursor
-      : undefined;
-
-  } while (cursor);
-
-  return results.map(page => {
-    const q = page.properties || {};
-
-    return {
-      id: page.id,
-
-      name: valueOf(q["اسم القناة"]),
-
-      subject: valueOf(q["المادة"]),
-
-      channelUrl: valueOf(q["رابط القناة"]),
-
-      playlistName: valueOf(q["اسم قائمة التشغيل"]),
-
-      playlistUrl: valueOf(q["رابط قائمة التشغيل"]),
-
-      notes: valueOf(q["ملاحظات"])
-    };
-  });
-}
+app.get("/api/channels", async (_req,res) => {
+  try {
+    const r=await notion.dataSources.query({data_source_id:CHANNELS_DATA_SOURCE_ID,page_size:100});
+    res.json(r.results.map(page=>{const q=page.properties||{};return {id:page.id,name:valueOf(q["اسم القناة"]),subject:valueOf(q["المادة"]),channelUrl:valueOf(q["رابط القناة"]),playlistName:valueOf(q["اسم قائمة التشغيل"]),playlistUrl:valueOf(q["رابط قائمة التشغيل"]),notes:valueOf(q["ملاحظات"])};}));
+  } catch(e){res.status(500).json({error:e.message});}
+});
 
 app.get("/api/channels", async (_req, res) => {
   try {
-    const channels = await getAllChannels();
+    const dataSourceId = await getChannelsDataSourceId();
 
-    res.json(channels);
+    const r = await notion.dataSources.query({
+      data_source_id: dataSourceId,
+      page_size: 100
+    });
 
-  } catch (e) {
-    console.error("GET /api/channels:", e);
+    const rows = r.results.map(page => {
+      const q = page.properties || {};
+
+      return {
+        id: page.id,
+
+        // المادة
+        subject: valueOf(q["المادة"]),
+
+        // اسم القناة
+        name: valueOf(q["اسم القناة"]),
+
+        // رابط القناة
+        channelUrl: valueOf(q["رابط القناة"]),
+
+        // اسم قائمة التشغيل
+        playlistName: valueOf(q["اسم قائمة التشغيل"]),
+
+        // رابط قائمة التشغيل
+        playlistUrl: valueOf(q["رابط قائمة التشغيل"]),
+
+        // الملاحظات
+        notes: valueOf(q["ملاحظات"])
+      };
+    });
+
+    res.json(rows);
+
+  } catch (error) {
+    console.error("Channels API error:", error);
 
     res.status(500).json({
-      error: "تعذر قراءة القنوات من Notion.",
-      details: e.message
+      error: "تعذر تحميل القنوات وقوائم التشغيل.",
+      details: error.message
     });
   }
 });
-
-app.post("/api/channels", async (req, res) => {
-  try {
-    const {
-      name,
-      subject,
-      channelUrl,
-      playlistName,
-      playlistUrl,
-      notes
-    } = req.body || {};
-
-    if (
-      !String(name || "").trim() ||
-      !String(subject || "").trim()
-    ) {
-      return res.status(400).json({
-        error: "اسم القناة والمادة مطلوبان"
-      });
-    }
-
-    const dataSourceId =
-      await getChannelsDataSourceId();
-
-    const text = value =>
-      value
-        ? [
-            {
-              type: "text",
-              text: {
-                content: String(value)
-              }
-            }
-          ]
-        : [];
-
-    const properties = {
-      "اسم القناة": {
-        title: text(name)
-      },
-
-      "المادة": {
-        select: {
-          name: subject
-        }
-      },
-
-      "رابط القناة": {
-        url: channelUrl
-          ? String(channelUrl)
-          : null
-      },
-
-      "اسم قائمة التشغيل": {
-        rich_text: text(playlistName)
-      },
-
-      "رابط قائمة التشغيل": {
-        url: playlistUrl
-          ? String(playlistUrl)
-          : null
-      },
-
-      "ملاحظات": {
-        rich_text: text(notes)
-      }
-    };
-
-    const page = await notion.pages.create({
-      parent: {
-        data_source_id: dataSourceId
-      },
-
-      properties
-    });
-
-    res.json({
-      ok: true,
-      id: page.id
-    });
-
-  } catch (e) {
-    console.error("POST /api/channels:", e);
-
-    res.status(500).json({
-      error: "تعذر إضافة المصدر إلى Notion.",
-      details: e.message
-    });
-  }
-});
-
 app.get("/api/progress", async (_req, res) => {
   try {
     if (!process.env.NOTION_TOKEN || !DATA_SOURCE_ID) return res.status(500).json({error:"Notion is not configured.",hint:"Create .env from .env.example and add NOTION_TOKEN."});

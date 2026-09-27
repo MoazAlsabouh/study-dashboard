@@ -84,172 +84,103 @@ $("lessonSubject").addEventListener("change", ()=>{state.unitIndex=0;renderLesso
 $("prevUnit").addEventListener("click", ()=>{if(state.unitIndex>0){state.unitIndex--;renderLessons();window.scrollTo({top:document.querySelector('.lessons-card').offsetTop-20,behavior:'smooth'});}});
 $("nextUnit").addEventListener("click", ()=>{const {units}=getUnits();if(state.unitIndex<units.length-1){state.unitIndex++;renderLessons();window.scrollTo({top:document.querySelector('.lessons-card').offsetTop-20,behavior:'smooth'});}});
 $("logout").addEventListener("click", async ()=>{await fetch('/api/logout',{method:'POST'});location.href='/login.html';});
-$("channelForm").addEventListener(
-  "submit",
-  async e => {
-    e.preventDefault();
-
-    const button =
-      e.target.querySelector(
-        'button[type="submit"]'
-      );
-
-    const oldText =
-      button.textContent;
-
-    button.disabled = true;
-
-    try {
-      const response = await fetch(
-        "/api/channels",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json"
-          },
-
-          body: JSON.stringify(
-            Object.fromEntries(
-              new FormData(e.target).entries()
-            )
-          )
-        }
-      );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.details ||
-          data.error ||
-          "تعذر إضافة المصدر"
-        );
-      }
-
-      e.target.reset();
-
-      await loadChannels();
-
-    } catch (error) {
-
-      console.error(
-        "تعذر إضافة المصدر:",
-        error
-      );
-
-      alert(
-        `تعذر إضافة المصدر إلى Notion:\n${error.message}`
-      );
-
-    } finally {
-
-      button.disabled = false;
-      button.textContent = oldText;
-    }
-  }
-);
 
 load();
 loadLessons();
 
 async function loadChannels() {
-  const container = $("channels");
-
   try {
-    const response = await fetch("/api/channels", {
+    const r = await fetch("/api/channels", {
       cache: "no-store"
     });
 
-    const data = await response.json();
+    const data = await r.json();
 
-    if (!response.ok) {
-      throw new Error(
-        data.details ||
-        data.error ||
-        "تعذر تحميل القنوات"
-      );
+    if (!r.ok) {
+      throw new Error(data.details || data.error || "تعذر تحميل القنوات");
     }
 
-    const rows = Array.isArray(data)
-      ? data
-      : [];
+    const rows = Array.isArray(data) ? data : [];
 
-    if (!rows.length) {
-      container.innerHTML =
-        '<div class="empty">لا توجد قنوات مضافة حاليًا.</div>';
+    $("channels").innerHTML = rows.map(x => `
+      <article class="channel">
 
-      return;
-    }
+        <div class="channel-subject">
+          ${escapeHtml(x.subject || "")}
+        </div>
 
-    container.innerHTML = rows
-      .map(x => `
-        <article class="channel">
+        ${
+          x.channelUrl
+            ? `
+              <a
+                href="${escapeAttr(x.channelUrl)}"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="channel-link"
+              >
+                🎥 ${escapeHtml(x.name || "")}
+              </a>
+            `
+            : `
+              <div class="channel-link">
+                🎥 ${escapeHtml(x.name || "")}
+              </div>
+            `
+        }
 
-          <p class="channel-subject">
-            ${escapeHtml(x.subject || "")}
-          </p>
-
-          ${
-            x.channelUrl
+        ${
+          x.playlistName
+            ? x.playlistUrl
               ? `
                 <a
-                  class="channel-link"
-                  href="${escapeAttr(x.channelUrl)}"
+                  href="${escapeAttr(x.playlistUrl)}"
                   target="_blank"
                   rel="noopener noreferrer"
+                  class="playlist-link"
                 >
-                  🎥 ${escapeHtml(x.name || "")}
+                  ▶ ${escapeHtml(x.playlistName)}
                 </a>
               `
               : `
-                <h3>
-                  🎥 ${escapeHtml(x.name || "")}
-                </h3>
+                <div class="playlist-link">
+                  ▶ ${escapeHtml(x.playlistName)}
+                </div>
               `
-          }
+            : ""
+        }
 
-          ${
-            x.playlistName
-              ? (
-                  x.playlistUrl
-                    ? `
-                      <a
-                        class="playlist-link"
-                        href="${escapeAttr(x.playlistUrl)}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        ▶ ${escapeHtml(x.playlistName)}
-                      </a>
-                    `
-                    : `
-                      <p class="playlist-link">
-                        ▶ ${escapeHtml(x.playlistName)}
-                      </p>
-                    `
-                )
-              : ""
-          }
-
-        </article>
-      `)
-      .join("");
+      </article>
+    `).join("");
 
   } catch (error) {
+    console.error("تعذر تحميل القنوات:", error);
 
-    console.error(
-      "تعذر تحميل القنوات:",
-      error
-    );
-
-    container.innerHTML = `
-      <div class="error">
-        تعذر تحميل القنوات:
-        ${escapeHtml(error.message)}
+    $("channels").innerHTML = `
+      <div class="error-message">
+        تعذر تحميل القنوات وقوائم التشغيل.
       </div>
     `;
   }
 }
+
+// Weekly planner and exam countdowns (browser-local storage).
+const readStore = key => { try { return JSON.parse(localStorage.getItem(key)||"[]"); } catch { return []; } };
+const writeStore = (key, value) => localStorage.setItem(key, JSON.stringify(value));
+const dayNames=["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+function localDateKey(d=new Date()){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
+function renderWeekly(){
+ const rows=readStore("study_weekly"), today=dayNames[new Date().getDay()], date=localDateKey();
+ const todays=rows.filter(x=>x.day===today);
+ $("weekly").innerHTML=`<h3>${today} — ${date}</h3><p>إنجاز اليوم: ${todays.filter(x=>x.doneDate===date).length} / ${todays.length} (${todays.length?Math.round(todays.filter(x=>x.doneDate===date).length/todays.length*100):0}%)</p>`+
+ (rows.length?dayNames.map(day=>{const items=rows.map((x,i)=>({...x,i})).filter(x=>x.day===day);return items.length?`<h3>${day}</h3>`+items.map(x=>`<article class="channel"><label><input type="checkbox" data-week="${x.i}" ${x.doneDate===date?'checked':''}> <b>${escapeHtml(x.subject)}</b> — ${escapeHtml(x.task)} ${x.time?`(${escapeHtml(x.time)})`:""}</label> <button class="secondary" data-delweek="${x.i}">حذف</button></article>`).join(""):""}).join(""):'<p class="empty">لم تضف حصصًا بعد.</p>');
+ document.querySelectorAll("[data-week]").forEach(el=>el.onchange=()=>{const a=readStore("study_weekly");a[+el.dataset.week].doneDate=el.checked?date:"";writeStore("study_weekly",a);renderWeekly();});
+ document.querySelectorAll("[data-delweek]").forEach(el=>el.onclick=()=>{const a=readStore("study_weekly");a.splice(+el.dataset.delweek,1);writeStore("study_weekly",a);renderWeekly();});
+}
+$("weeklyForm").addEventListener("submit",e=>{e.preventDefault();const f=new FormData(e.target);const a=readStore("study_weekly");a.push({day:f.get("day"),subject:f.get("subject"),task:f.get("task"),time:f.get("time"),doneDate:""});writeStore("study_weekly",a);e.target.reset();renderWeekly();});
+$("examForm").addEventListener("submit",e=>{e.preventDefault();const f=new FormData(e.target);const a=readStore("study_exams");a.push({subject:f.get("subject"),name:f.get("name"),at:new Date(`${f.get("date")}T${f.get("time")}`).toISOString()});writeStore("study_exams",a);e.target.reset();renderExams();});
+function renderExams(){
+ const a=readStore("study_exams");
+ $("exams").innerHTML=a.length?a.map((x,i)=>{let ms=new Date(x.at)-Date.now();if(ms<=0)return `<article class="channel"><h3>${escapeHtml(x.subject)} — انتهى موعد الامتحان</h3><button data-delexam="${i}" class="secondary">حذف</button></article>`;let sec=Math.floor(ms/1000),months=Math.floor(sec/2592000);sec-=months*2592000;let days=Math.floor(sec/86400);sec-=days*86400;let hours=Math.floor(sec/3600);sec-=hours*3600;let mins=Math.floor(sec/60);sec%=60;return `<article class="channel"><h3>${escapeHtml(x.subject)} ${x.name?`— ${escapeHtml(x.name)}`:""}</h3><p>${new Date(x.at).toLocaleString("ar")}</p><strong>${months} شهر • ${days} يوم • ${hours} ساعة • ${mins} دقيقة • ${sec} ثانية</strong><br><button data-delexam="${i}" class="secondary">حذف</button></article>`}).join(""):'<p class="empty">لم تضف امتحانات بعد.</p>';
+ document.querySelectorAll("[data-delexam]").forEach(el=>el.onclick=()=>{const a=readStore("study_exams");a.splice(+el.dataset.delexam,1);writeStore("study_exams",a);renderExams();});
+}
+renderWeekly();renderExams();setInterval(renderExams,1000);
