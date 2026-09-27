@@ -25,6 +25,8 @@ const notion = new Client({ auth: process.env.NOTION_TOKEN });
 const DATA_SOURCE_ID = process.env.NOTION_DATA_SOURCE_ID;
 const CHANNELS_DATA_SOURCE_ID = process.env.NOTION_CHANNELS_DATA_SOURCE_ID;
 const CHANNELS_DATABASE_ID = process.env.NOTION_CHANNELS_DATABASE_ID;
+const WEEKLY_DATA_SOURCE_ID = process.env.NOTION_WEEKLY_DATA_SOURCE_ID;
+const EXAMS_DATA_SOURCE_ID = process.env.NOTION_EXAMS_DATA_SOURCE_ID;
 
 async function getChannelsDataSourceId() {
   // إذا تم تحديد Data Source ID مباشرة، استخدمه.
@@ -251,6 +253,158 @@ app.get("/api/channels", async (_req, res) => {
     });
   }
 });
+
+async function queryAllDataSource(dataSourceId) {
+  if (!dataSourceId) throw new Error("لم يتم إعداد Data Source ID.");
+  let results = [];
+  let cursor;
+  do {
+    const response = await notion.dataSources.query({
+      data_source_id: dataSourceId,
+      start_cursor: cursor,
+      page_size: 100
+    });
+    results.push(...response.results);
+    cursor = response.has_more ? response.next_cursor : undefined;
+  } while (cursor);
+  return results;
+}
+
+function textProp(value) {
+  return { rich_text: [{ type: "text", text: { content: String(value || "") } }] };
+}
+function titleProp(value) {
+  return { title: [{ type: "text", text: { content: String(value || "") } }] };
+}
+
+function toWeekly(page) {
+  const p = page.properties || {};
+  const date = p["تاريخ الإنجاز"]?.date?.start || "";
+  return {
+    id: page.id,
+    day: valueOf(p["اليوم"]),
+    subject: valueOf(p["المادة"]),
+    task: valueOf(p["المهمة"] || Object.values(p).find(x => x.type === "title")),
+    time: valueOf(p["الوقت"]),
+    done: valueOf(p["منجز"]) === true,
+    doneDate: date ? date.slice(0, 10) : ""
+  };
+}
+
+function toExam(page) {
+  const p = page.properties || {};
+  return {
+    id: page.id,
+    subject: valueOf(p["المادة"]),
+    name: valueOf(p["الامتحان"] || Object.values(p).find(x => x.type === "title")),
+    at: p["الموعد"]?.date?.start || null
+  };
+}
+
+app.get("/api/weekly", async (_req, res) => {
+  try { res.json((await queryAllDataSource(WEEKLY_DATA_SOURCE_ID)).map(toWeekly)); }
+  catch(e) { res.status(500).json({error:e.message}); }
+});
+
+app.post("/api/weekly", async (req, res) => {
+  try {
+    const {day, subject, task, time} = req.body || {};
+    if (!day || !subject || !task) return res.status(400).json({error:"اليوم والمادة والمهمة مطلوبة."});
+    const page = await notion.pages.create({
+      parent: { data_source_id: WEEKLY_DATA_SOURCE_ID },
+      properties: {
+        "المهمة": titleProp(task),
+        "اليوم": { select: { name: String(day) } },
+        "المادة": textProp(subject),
+        "الوقت": textProp(time || ""),
+        "منجز": { checkbox: false }
+      }
+    });
+    res.json(toWeekly(page));
+  } catch(e) { res.status(500).json({error:e.message}); }
+});
+
+app.patch("/api/weekly/:id", async (req, res) => {
+  try {
+    const {done} = req.body || {};
+    if (typeof done !== "boolean") return res.status(400).json({error:"حالة الإنجاز غير صالحة."});
+    await notion.pages.update({
+      page_id: req.params.id,
+      properties: {
+        "منجز": { checkbox: done },
+        "تاريخ الإنجاز": done ? { date: { start: new Date().toISOString().slice(0,10) } } : { date: null }
+      }
+    });
+    res.json({ok:true});
+  } catch(e) { res.status(500).json({error:e.message}); }
+});
+
+app.delete("/api/weekly/:id", async (req, res) => {
+  try { await notion.pages.update({page_id:req.params.id, archived:true}); res.json({ok:true}); }
+  catch(e) { res.status(500).json({error:e.message}); }
+});
+
+app.get("/api/exams", async (_req, res) => {
+  try { res.json((await queryAllDataSource(EXAMS_DATA_SOURCE_ID)).map(toExam)); }
+  catch(e) { res.status(500).json({error:e.message}); }
+});
+
+app.post("/api/exams", async (req, res) => {
+  try {
+    const {subject, name, at} = req.body || {};
+    if (!subject || !at) return res.status(400).json({error:"المادة وموعد الامتحان مطلوبان."});
+    const page = await notion.pages.create({
+      parent: { data_source_id: EXAMS_DATA_SOURCE_ID },
+      properties: {
+        "الامتحان": titleProp(name || subject),
+        "المادة": textProp(subject),
+        "الموعد": { date: { start: new Date(at).toISOString() } }
+      }
+    });
+    res.json(toExam(page));
+  } catch(e) { res.status(500).json({error:e.message}); }
+});
+
+app.delete("/api/exams/:id", async (req, res) => {
+  try { await notion.pages.update({page_id:req.params.id, archived:true}); res.json({ok:true}); }
+  catch(e) { res.status(500).json({error:e.message}); }
+});
+
+app.post("/api/local-migrate", async (req, res) => {
+  try {
+    const weekly = Array.isArray(req.body?.weekly) ? req.body.weekly : [];
+    const exams = Array.isArray(req.body?.exams) ? req.body.exams : [];
+    const migrated = {weekly:0, exams:0};
+    for (const x of weekly) {
+      const page = await notion.pages.create({
+        parent:{data_source_id:WEEKLY_DATA_SOURCE_ID},
+        properties:{
+          "المهمة":titleProp(x.task || ""),
+          "اليوم":{select:{name:String(x.day || "الأحد")}},
+          "المادة":textProp(x.subject || ""),
+          "الوقت":textProp(x.time || ""),
+          "منجز":{checkbox:Boolean(x.doneDate)},
+          "تاريخ الإنجاز": x.doneDate ? {date:{start:x.doneDate}} : {date:null}
+        }
+      });
+      migrated.weekly++;
+    }
+    for (const x of exams) {
+      if (!x.at) continue;
+      await notion.pages.create({
+        parent:{data_source_id:EXAMS_DATA_SOURCE_ID},
+        properties:{
+          "الامتحان":titleProp(x.name || x.subject || "امتحان"),
+          "المادة":textProp(x.subject || ""),
+          "الموعد":{date:{start:new Date(x.at).toISOString()}}
+        }
+      });
+      migrated.exams++;
+    }
+    res.json({ok:true,migrated});
+  } catch(e) { res.status(500).json({error:e.message}); }
+});
+
 app.get("/api/progress", async (_req, res) => {
   try {
     if (!process.env.NOTION_TOKEN || !DATA_SOURCE_ID) return res.status(500).json({error:"Notion is not configured.",hint:"Create .env from .env.example and add NOTION_TOKEN."});

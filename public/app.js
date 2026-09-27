@@ -163,24 +163,90 @@ async function loadChannels() {
   }
 }
 
-// Weekly planner and exam countdowns (browser-local storage).
-const readStore = key => { try { return JSON.parse(localStorage.getItem(key)||"[]"); } catch { return []; } };
-const writeStore = (key, value) => localStorage.setItem(key, JSON.stringify(value));
+// Weekly planner and exam countdowns are stored in Notion, not localStorage.
 const dayNames=["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
 function localDateKey(d=new Date()){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; }
-function renderWeekly(){
- const rows=readStore("study_weekly"), today=dayNames[new Date().getDay()], date=localDateKey();
- const todays=rows.filter(x=>x.day===today);
- $("weekly").innerHTML=`<h3>${today} — ${date}</h3><p>إنجاز اليوم: ${todays.filter(x=>x.doneDate===date).length} / ${todays.length} (${todays.length?Math.round(todays.filter(x=>x.doneDate===date).length/todays.length*100):0}%)</p>`+
- (rows.length?dayNames.map(day=>{const items=rows.map((x,i)=>({...x,i})).filter(x=>x.day===day);return items.length?`<h3>${day}</h3>`+items.map(x=>`<article class="channel"><label><input type="checkbox" data-week="${x.i}" ${x.doneDate===date?'checked':''}> <b>${escapeHtml(x.subject)}</b> — ${escapeHtml(x.task)} ${x.time?`(${escapeHtml(x.time)})`:""}</label> <button class="secondary" data-delweek="${x.i}">حذف</button></article>`).join(""):""}).join(""):'<p class="empty">لم تضف حصصًا بعد.</p>');
- document.querySelectorAll("[data-week]").forEach(el=>el.onchange=()=>{const a=readStore("study_weekly");a[+el.dataset.week].doneDate=el.checked?date:"";writeStore("study_weekly",a);renderWeekly();});
- document.querySelectorAll("[data-delweek]").forEach(el=>el.onclick=()=>{const a=readStore("study_weekly");a.splice(+el.dataset.delweek,1);writeStore("study_weekly",a);renderWeekly();});
+
+async function loadWeekly(){
+  const r=await fetch("/api/weekly",{cache:"no-store"});
+  const data=await r.json();
+  if(!r.ok) throw new Error(data.error||"تعذر تحميل جدول الأسبوع");
+  renderWeekly(data);
 }
-$("weeklyForm").addEventListener("submit",e=>{e.preventDefault();const f=new FormData(e.target);const a=readStore("study_weekly");a.push({day:f.get("day"),subject:f.get("subject"),task:f.get("task"),time:f.get("time"),doneDate:""});writeStore("study_weekly",a);e.target.reset();renderWeekly();});
-$("examForm").addEventListener("submit",e=>{e.preventDefault();const f=new FormData(e.target);const a=readStore("study_exams");a.push({subject:f.get("subject"),name:f.get("name"),at:new Date(`${f.get("date")}T${f.get("time")}`).toISOString()});writeStore("study_exams",a);e.target.reset();renderExams();});
-function renderExams(){
- const a=readStore("study_exams");
- $("exams").innerHTML=a.length?a.map((x,i)=>{let ms=new Date(x.at)-Date.now();if(ms<=0)return `<article class="channel"><h3>${escapeHtml(x.subject)} — انتهى موعد الامتحان</h3><button data-delexam="${i}" class="secondary">حذف</button></article>`;let sec=Math.floor(ms/1000),months=Math.floor(sec/2592000);sec-=months*2592000;let days=Math.floor(sec/86400);sec-=days*86400;let hours=Math.floor(sec/3600);sec-=hours*3600;let mins=Math.floor(sec/60);sec%=60;return `<article class="channel"><h3>${escapeHtml(x.subject)} ${x.name?`— ${escapeHtml(x.name)}`:""}</h3><p>${new Date(x.at).toLocaleString("ar")}</p><strong>${months} شهر • ${days} يوم • ${hours} ساعة • ${mins} دقيقة • ${sec} ثانية</strong><br><button data-delexam="${i}" class="secondary">حذف</button></article>`}).join(""):'<p class="empty">لم تضف امتحانات بعد.</p>';
- document.querySelectorAll("[data-delexam]").forEach(el=>el.onclick=()=>{const a=readStore("study_exams");a.splice(+el.dataset.delexam,1);writeStore("study_exams",a);renderExams();});
+function renderWeekly(rows=[]){
+  const today=dayNames[new Date().getDay()], date=localDateKey();
+  const todays=rows.filter(x=>x.day===today);
+  const done=todays.filter(x=>x.done && x.doneDate===date).length;
+  $("weekly").innerHTML=`<h3>${today} — ${date}</h3><p>إنجاز اليوم: ${done} / ${todays.length} (${todays.length?Math.round(done/todays.length*100):0}%)</p>`+
+    (rows.length ? dayNames.map(day=>{
+      const items=rows.filter(x=>x.day===day);
+      return items.length ? `<h3>${day}</h3>`+items.map(x=>`<article class="channel"><label><input type="checkbox" data-week-id="${x.id}" ${x.done?'checked':''}> <b>${escapeHtml(x.subject)}</b> — ${escapeHtml(x.task)} ${x.time?`(${escapeHtml(x.time)})`:""}</label> <button class="secondary" data-delweek-id="${x.id}">حذف</button></article>`).join("") : "";
+    }).join("") : '<p class="empty">لم تضف حصصًا بعد.</p>');
+  document.querySelectorAll("[data-week-id]").forEach(el=>el.onchange=async()=>{
+    const r=await fetch(`/api/weekly/${el.dataset.weekId}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({done:el.checked})});
+    if(!r.ok){el.checked=!el.checked;alert("تعذر حفظ التغيير في Notion");return;}
+    await loadWeekly();
+  });
+  document.querySelectorAll("[data-delweek-id]").forEach(el=>el.onclick=async()=>{
+    if(!confirm("حذف هذه الحصة؟")) return;
+    const r=await fetch(`/api/weekly/${el.dataset.delweekId}`,{method:"DELETE"});
+    if(!r.ok){alert("تعذر حذف الحصة من Notion");return;}
+    await loadWeekly();
+  });
 }
-renderWeekly();renderExams();setInterval(renderExams,1000);
+$("weeklyForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const f=new FormData(e.target);
+  const body=Object.fromEntries(f.entries());
+  const r=await fetch("/api/weekly",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  if(!r.ok){const x=await r.json();alert(x.error||"تعذر الحفظ");return;}
+  e.target.reset(); await loadWeekly();
+});
+
+async function loadExams(){
+  const r=await fetch("/api/exams",{cache:"no-store"});
+  const data=await r.json();
+  if(!r.ok) throw new Error(data.error||"تعذر تحميل الامتحانات");
+  renderExams(data);
+}
+function renderExams(rows=[]){
+  $("exams").innerHTML=rows.length ? rows.map(x=>{
+    const ms=new Date(x.at)-Date.now();
+    if(ms<=0) return `<article class="channel"><h3>${escapeHtml(x.subject)}${x.name?` — ${escapeHtml(x.name)}`:""} </h3><p>انتهى موعد الامتحان</p><button data-delexam-id="${x.id}" class="secondary">حذف</button></article>`;
+    let sec=Math.floor(ms/1000), days=Math.floor(sec/86400); sec-=days*86400;
+    let hours=Math.floor(sec/3600); sec-=hours*3600;
+    let mins=Math.floor(sec/60); sec%=60;
+    return `<article class="channel"><h3>${escapeHtml(x.subject)} ${x.name?`— ${escapeHtml(x.name)}`:""}</h3><p>${new Date(x.at).toLocaleString("ar-SY")}</p><strong>${days} يوم • ${hours} ساعة • ${mins} دقيقة • ${sec} ثانية</strong><br><button data-delexam-id="${x.id}" class="secondary">حذف</button></article>`;
+  }).join("") : '<p class="empty">لم تضف امتحانات بعد.</p>';
+  document.querySelectorAll("[data-delexam-id]").forEach(el=>el.onclick=async()=>{
+    if(!confirm("حذف هذا الامتحان؟")) return;
+    const r=await fetch(`/api/exams/${el.dataset.delexamId}`,{method:"DELETE"});
+    if(!r.ok){alert("تعذر حذف الامتحان من Notion");return;}
+    await loadExams();
+  });
+}
+$("examForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const f=new FormData(e.target);
+  const date=f.get("date"), time=f.get("time");
+  const r=await fetch("/api/exams",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({subject:f.get("subject"),name:f.get("name"),at:`${date}T${time}`})});
+  if(!r.ok){const x=await r.json();alert(x.error||"تعذر الحفظ");return;}
+  e.target.reset(); await loadExams();
+});
+
+async function migrateOldLocalData(){
+  try{
+    const weekly=JSON.parse(localStorage.getItem("study_weekly")||"[]");
+    const exams=JSON.parse(localStorage.getItem("study_exams")||"[]");
+    if(!weekly.length && !exams.length) return;
+    const r=await fetch("/api/local-migrate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({weekly,exams})});
+    if(r.ok){
+      localStorage.removeItem("study_weekly");
+      localStorage.removeItem("study_exams");
+    }
+  }catch(e){console.warn("Local data migration skipped:",e);}
+}
+loadWeekly().catch(e=>{ $("error").textContent=`⚠️ ${e.message}`;$("error").classList.remove("hidden"); });
+loadExams().catch(e=>{ $("error").textContent=`⚠️ ${e.message}`;$("error").classList.remove("hidden"); });
+migrateOldLocalData().then(()=>Promise.all([loadWeekly(),loadExams()])).catch(()=>{});
+setInterval(()=>loadExams().catch(()=>{}),1000);
