@@ -16,7 +16,7 @@ npm install
 
 ```env
 NOTION_TOKEN=secret_xxxxxxxxxxxxxxxxx
-NOTION_DATA_SOURCE_ID=0874e087-7c06-4a81-9d0a-4d7c72e22ca8
+NOTION_DATA_SOURCE_ID=secret_xxxxxxxxxxxxxxxxx
 PORT=3000
 ```
 
