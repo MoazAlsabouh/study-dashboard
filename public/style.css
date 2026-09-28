@@ -1,4 +1,4 @@
-/* STREAMING_CHUNK:Configuring global styles and design variables... */
+/* STREAMING_CHUNK:Setting global variables and reset rules... */
 
 {
 box-sizing: border-box;
@@ -25,11 +25,11 @@ body {
 margin: 0;
 background: var(--bg);
 color: var(--text);
-font-family: Tahoma, Arial, "Segoe UI", sans-serif;
+font-family: Tahoma, Arial, sans-serif;
 min-height: 100vh;
-direction: rtl;
 }
 
+/* STREAMING_CHUNK:Styling main layout containers and topbar... */
 .container {
 max-width: 1180px;
 margin: auto;
@@ -40,7 +40,6 @@ a {
 color: inherit;
 }
 
-/* STREAMING_CHUNK:Styling navigation and topbar elements... */
 .topbar {
 position: sticky;
 top: 0;
@@ -83,6 +82,7 @@ color: var(--muted);
 margin-top: 3px;
 }
 
+/* STREAMING_CHUNK:Styling navigation and interactive buttons... */
 .nav {
 display: flex;
 justify-content: center;
@@ -116,7 +116,6 @@ min-width: 42px;
 padding: 9px;
 }
 
-/* STREAMING_CHUNK:Styling buttons and interactive controls... */
 .button,
 button,
 select,
@@ -136,7 +135,7 @@ border-radius: 11px;
 padding: 10px 14px;
 text-decoration: none;
 cursor: pointer;
-transition: border-color 0.2s ease, background 0.2s ease;
+transition: border-color 0.18s, background-color 0.18s;
 }
 
 .button:hover,
@@ -156,6 +155,7 @@ background: #f8f9fc !important;
 color: var(--text) !important;
 }
 
+/* STREAMING_CHUNK:Styling page headings and card wrappers... */
 .page-heading {
 margin: 16px 0 22px;
 }
@@ -164,7 +164,6 @@ margin: 16px 0 22px;
 color: var(--accent);
 font-size: 12px;
 font-weight: 800;
-text-transform: uppercase;
 }
 
 .page-heading h1 {
@@ -177,7 +176,6 @@ font-size: clamp(26px, 4vw, 38px);
 color: var(--muted);
 }
 
-/* STREAMING_CHUNK:Styling core cards and layout containers... */
 .card,
 .subject-card,
 .stage-card,
@@ -206,6 +204,7 @@ color: var(--muted);
 font-weight: 700;
 }
 
+/* STREAMING_CHUNK:Styling progress bars and metrics... */
 .overall-value {
 font-size: 52px;
 font-weight: 900;
@@ -260,6 +259,7 @@ color: var(--accent);
 margin: 22px 0;
 }
 
+/* STREAMING_CHUNK:Styling subjects grid and stage progress cards... */
 .section-block {
 margin-top: 30px;
 }
@@ -283,7 +283,6 @@ color: var(--muted);
 font-size: 13px;
 }
 
-/* STREAMING_CHUNK:Styling subject cards and stage grids... */
 .subject-grid {
 display: grid;
 grid-template-columns: repeat(3, 1fr);
@@ -393,6 +392,7 @@ margin-bottom: 0;
 margin-bottom: 18px;
 }
 
+/* STREAMING_CHUNK:Styling lessons, units navigation, and checklists... */
 .subject-summary {
 display: grid;
 grid-template-columns: 180px 1fr;
@@ -412,7 +412,6 @@ margin-top: 5px;
 color: var(--muted);
 }
 
-/* STREAMING_CHUNK:Styling lessons and unit navigation... */
 .lessons-card {
 margin-top: 18px;
 }
@@ -495,7 +494,7 @@ border-radius: 9px;
 padding: 7px 8px;
 background: #fafbfe;
 cursor: pointer;
-display: inline-flex;
+display: flex;
 align-items: center;
 gap: 5px;
 }
@@ -504,7 +503,7 @@ gap: 5px;
 accent-color: var(--accent);
 }
 
-/* STREAMING_CHUNK:Styling channel cards and forms... */
+/* STREAMING_CHUNK:Styling educational channels and forms... */
 .channels {
 display: grid;
 grid-template-columns: repeat(3, 1fr);
@@ -568,6 +567,7 @@ color: var(--text);
 border-radius: 11px;
 padding: 11px 12px;
 outline: none;
+transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 input:focus,
@@ -576,7 +576,7 @@ border-color: #aaa8ff;
 box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.08);
 }
 
-/* STREAMING_CHUNK:Styling daily schedule and weekly tasks... */
+/* STREAMING_CHUNK:Styling daily schedule and exam cards... */
 .days {
 display: grid;
 gap: 13px;
@@ -637,9 +637,9 @@ background: none !important;
 color: var(--danger) !important;
 padding: 5px !important;
 font-size: 12px;
+cursor: pointer;
 }
 
-/* STREAMING_CHUNK:Styling exam lists and alert messages... */
 .exam-list {
 display: grid;
 gap: 12px;
@@ -701,7 +701,7 @@ font-size: 11px;
 margin-top: 30px;
 }
 
-/* STREAMING_CHUNK:Styling weekly activity calendar for 5 study days... */
+/* STREAMING_CHUNK:Styling annual study activity calendar components... */
 .weekly-activity {
 margin-top: 18px;
 padding: 22px;
@@ -757,6 +757,7 @@ scrollbar-width: thin;
 min-width: max-content;
 }
 
+/* STREAMING_CHUNK:Styling activity months labels and alignment... */
 .activity-months-wrap {
 display: grid;
 grid-template-columns: 52px auto;
@@ -775,6 +776,7 @@ grid-template-columns: repeat(53, 14px);
 column-gap: 4px;
 height: 22px;
 align-items: center;
+position: relative;
 }
 
 .activity-month-label {
@@ -782,12 +784,13 @@ font-size: 11px;
 font-weight: 700;
 color: var(--muted);
 white-space: nowrap;
-overflow: hidden;
-text-overflow: ellipsis;
+overflow: visible;
+text-overflow: clip;
 text-align: start;
-padding: 0 2px;
+padding: 0 1px;
 }
 
+/* STREAMING_CHUNK:Styling 5-day study activity board and cells... */
 .activity-board {
 display: grid;
 grid-template-columns: 52px auto;
@@ -795,25 +798,24 @@ gap: 10px;
 align-items: start;
 }
 
-/* 5 أيام دراسية: (5 × 14px) + (4 × 4px) = 86px */
+/* 5 صفوف مخصصة لأيام الأحد إلى الخميس مع تطابق الارتفاع التام */
 .activity-weekdays {
 display: grid;
 grid-template-rows: repeat(5, 14px);
 row-gap: 4px;
 height: 86px;
 align-items: center;
-width: 52px;
 }
 
 .activity-weekdays span {
-font-size: 10px;
-font-weight: 600;
+font-size: 11px;
 color: var(--muted);
-text-align: start;
+text-align: right;
+padding-left: 2px;
 line-height: 14px;
+font-weight: 600;
 }
 
-/* شبكة التقويم اليومي: 5 صفوف للأيام الخمسة */
 .activity-grid {
 display: grid;
 grid-template-rows: repeat(5, 14px);
@@ -834,7 +836,7 @@ border-radius: 3px;
 background: #ebedf0 !important;
 box-shadow: none !important;
 cursor: pointer;
-transition: transform 0.12s, outline 0.12s;
+transition: transform 0.12s ease;
 }
 
 .activity-cell:hover {
@@ -871,18 +873,20 @@ outline: 2px solid var(--accent);
 outline-offset: 1px;
 }
 
+/* STREAMING_CHUNK:Styling activity legend and details preview... */
 .activity-legend {
 display: flex;
 justify-content: flex-end;
 align-items: center;
 gap: 5px;
-margin-top: 12px;
+margin-top: 14px;
 color: var(--muted);
 font-size: 11px;
 }
 
 .activity-legend .activity-cell {
 display: inline-block;
+cursor: default;
 }
 
 .activity-details {
@@ -897,6 +901,7 @@ gap: 12px;
 padding: 10px 14px;
 border-radius: 10px;
 background: #fafbfe;
+border: 1px solid var(--line);
 color: var(--muted);
 font-size: 12px;
 }
@@ -908,6 +913,7 @@ color: var(--text);
 .activity-details strong {
 margin-right: auto;
 color: var(--accent);
+font-size: 13px;
 }
 
 /* STREAMING_CHUNK:Configuring responsive media queries... */
@@ -919,7 +925,7 @@ grid-template-columns: 1fr auto;
 grid-column: 1 / -1;
 grid-row: 2;
 justify-content: flex-start;
-overflow-x: auto;
+overflow: auto;
 flex-wrap: nowrap;
 }
 .hero-grid,

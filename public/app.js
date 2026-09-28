@@ -338,7 +338,12 @@ function getDateForCell(weekStartStr, dayOffset) {
 }
 
 function renderWeeklyActivity(payload) {
-  const weeks = payload?.weeks || [];
+  // ترتيب الأسابيع زمنياً تصاعدياً لضمان تسلسل الشهور الصحيح دون تقطع أو قفزات
+  const rawWeeks = Array.isArray(payload?.weeks) ? payload.weeks : [];
+  const weeks = rawWeeks.slice().sort((a, b) => {
+    return new Date(`${a.start}T00:00:00Z`).getTime() - new Date(`${b.start}T00:00:00Z`).getTime();
+  });
+
   const current = payload?.current;
   state.weeklyActivity = payload;
 
@@ -346,12 +351,13 @@ function renderWeeklyActivity(payload) {
   const activeWeeks = weeks.filter(x => Number(x.completed || 0) > 0).length;
   const average = weeks.length ? Math.round(weeks.reduce((sum, x) => sum + Number(x.percent || 0), 0) / weeks.length) : 0;
 
-  // احتساب نطاق كل شهر لتوزيعه على أعمدة التقويم دون أي تداخل
+  // تجميع الأسابيع حسب الشهور المتعاقبة وحساب النطاق الزمني لكل شهر
   const monthBlocks = [];
   let curBlock = null;
 
   weeks.forEach((w, idx) => {
     const d = new Date(`${w.start}T00:00:00Z`);
+    if (isNaN(d.getTime())) return;
     const m = d.getUTCMonth();
     const y = d.getUTCFullYear();
     const key = `${y}-${m}`;
@@ -376,13 +382,12 @@ function renderWeeklyActivity(payload) {
       let dayPercent = 0;
 
       if (isCurrentWeek) {
-        // حساب إنجاز اليوم الحالي بدقة من قائمة مهام المستخدم
+        // حساب إنجاز اليوم الحالي بدقة من مهام المستخدم المحددة
         const tasks = getTasksForDay(dayObj.key, state.weekly);
         dayTotal = tasks.length;
         dayCompleted = tasks.filter(t => t.done).length;
         dayPercent = dayTotal > 0 ? Math.round((dayCompleted / dayTotal) * 100) : 0;
       } else if (w.days && typeof w.days === "object") {
-        // إذا كان السيرفر يوفر تفاصيل يومية للأسابيع السابقة
         const dayRecord = Array.isArray(w.days) ? w.days[dayIdx] : (w.days[dayObj.key] || w.days[normDay(dayObj.key)]);
         if (dayRecord) {
           dayCompleted = Number(dayRecord.completed || 0);
@@ -390,7 +395,6 @@ function renderWeeklyActivity(payload) {
           dayPercent = Number(dayRecord.percent || 0);
         }
       } else {
-        // في حال عدم وجود تفصيل يومي مسجل مسبقاً
         dayCompleted = 0;
         dayTotal = 0;
         dayPercent = 0;
@@ -440,9 +444,8 @@ function renderWeeklyActivity(payload) {
         <div class="activity-calendar">
           <div class="activity-months-wrap">
             <div class="activity-weekday-spacer"></div>
-            <div class="activity-months">
+            <div class="activity-months" style="grid-template-columns: repeat(${weeks.length || 53}, 14px);">
               ${monthBlocks.map(b => {
-                if (b.span < 2) return "";
                 const name = LEVANT_MONTHS_SHORT[b.m];
                 const fullName = `${LEVANT_MONTHS_FULL[b.m]} (${GREGORIAN_MONTHS[b.m]} ${b.y})`;
                 return `<span style="grid-column:${b.startCol} / span ${b.span}" class="activity-month-label" title="${esc(fullName)}">${esc(name)}</span>`;
