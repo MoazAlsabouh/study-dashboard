@@ -17,6 +17,44 @@ const attr = esc;
 
 const subjectsFallback = ["الرياضيات","الفيزياء","الكيمياء","الأحياء","اللغة العربية","اللغة الإنجليزية","التربية الدينية"];
 
+// أسماء الأيام والشهور القياسية
+const WEEKDAYS = [
+  { key: "الأحد", label: "الأحد", short: "أحد" },
+  { key: "الإثنين", label: "الإثنين", short: "إثنين" },
+  { key: "الثلاثاء", label: "الثلاثاء", short: "ثلاثاء" },
+  { key: "الأربعاء", label: "الأربعاء", short: "أربعاء" },
+  { key: "الخميس", label: "الخميس", short: "خميس" }
+];
+
+const LEVANT_MONTHS_SHORT = [
+  "كانون 2", "شباط", "آذار", "نيسان", "أيار", "حزيران",
+  "تموز", "آب", "أيلول", "تشرين 1", "تشرين 2", "كانون 1"
+];
+
+const LEVANT_MONTHS_FULL = [
+  "كانون الثاني", "شباط", "آذار", "نيسان", "أيار", "حزيران",
+  "تموز", "آب", "أيلول", "تشرين الأول", "تشرين الثاني", "كانون الأول"
+];
+
+const GREGORIAN_MONTHS = [
+  "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
+  "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+];
+
+// تسوية النصوص العربية للتحقق من تطابق الأيام بغض النظر عن الهمزات
+function normDay(str = "") {
+  return String(str)
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .trim();
+}
+
+function getTasksForDay(dayName, weeklyList = state.weekly) {
+  const target = normDay(dayName);
+  return (weeklyList || []).filter(item => normDay(item.day) === target);
+}
+
 function bar(percent, cls = "") {
   const p = Math.max(0, Math.min(100, Number(percent) || 0));
   return `<div class="progress ${cls}"><span style="width:${p}%"></span></div>`;
@@ -85,7 +123,11 @@ function countdown(at) {
 
 function formatDate(value) {
   if (!value) return "—";
-  return new Date(value).toLocaleString("ar-SY", {dateStyle:"medium", timeStyle:"short"});
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "—";
+  const hours = String(d.getHours()).padStart(2, "0");
+  const mins = String(d.getMinutes()).padStart(2, "0");
+  return `${d.getDate()} ${LEVANT_MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}، ${hours}:${mins}`;
 }
 
 function renderDashboard(d, exams) {
@@ -259,7 +301,15 @@ async function subjectPage() {
 }
 
 function weeklyForm() {
-  return `<form id="weeklyForm" class="form-grid"><select name="day" required>${["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"].map(x=>`<option>${x}</option>`).join("")}</select><input name="subject" placeholder="المادة" required><input name="task" placeholder="المهمة / الدرس" required><input name="time" type="time" aria-label="الوقت"><button class="button" type="submit">＋ إضافة</button></form>`;
+  return `<form id="weeklyForm" class="form-grid">
+    <select name="day" required>
+      ${WEEKDAYS.map(x => `<option value="${x.key}">${x.label}</option>`).join("")}
+    </select>
+    <input name="subject" placeholder="المادة" required>
+    <input name="task" placeholder="المهمة / الدرس" required>
+    <input name="time" type="time" aria-label="الوقت">
+    <button class="button" type="submit">＋ إضافة</button>
+  </form>`;
 }
 
 function activityLevelClass(percent) {
@@ -276,8 +326,15 @@ function weekLabel(x) {
   if (!x?.start) return "أسبوع";
   const start = new Date(`${x.start}T00:00:00Z`);
   const end = new Date(`${x.end}T00:00:00Z`);
-  const fmt = d => d.toLocaleDateString("ar-SY", {day:"numeric", month:"short", timeZone:"UTC"});
+  const fmt = d => `${d.getUTCDate()} ${LEVANT_MONTHS_SHORT[d.getUTCMonth()]}`;
   return `${fmt(start)} — ${fmt(end)}`;
+}
+
+function getDateForCell(weekStartStr, dayOffset) {
+  if (!weekStartStr) return null;
+  const d = new Date(`${weekStartStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dayOffset);
+  return d;
 }
 
 function renderWeeklyActivity(payload) {
@@ -289,12 +346,87 @@ function renderWeeklyActivity(payload) {
   const activeWeeks = weeks.filter(x => Number(x.completed || 0) > 0).length;
   const average = weeks.length ? Math.round(weeks.reduce((sum, x) => sum + Number(x.percent || 0), 0) / weeks.length) : 0;
 
+  // احتساب نطاق كل شهر لتوزيعه على أعمدة التقويم دون أي تداخل
+  const monthBlocks = [];
+  let curBlock = null;
+
+  weeks.forEach((w, idx) => {
+    const d = new Date(`${w.start}T00:00:00Z`);
+    const m = d.getUTCMonth();
+    const y = d.getUTCFullYear();
+    const key = `${y}-${m}`;
+    if (!curBlock || curBlock.key !== key) {
+      if (curBlock) monthBlocks.push(curBlock);
+      curBlock = { key, m, y, startCol: idx + 1, span: 1 };
+    } else {
+      curBlock.span++;
+    }
+  });
+  if (curBlock) monthBlocks.push(curBlock);
+
+  // تخزين بيانات تفاصيل الخلايا لعرضها عند النقر
+  const cellDataStore = [];
+
+  const gridHtml = weeks.map((w, colIdx) => {
+    const isCurrentWeek = Boolean(current && w.start === current.start);
+
+    return WEEKDAYS.map((dayObj, dayIdx) => {
+      let dayCompleted = 0;
+      let dayTotal = 0;
+      let dayPercent = 0;
+
+      if (isCurrentWeek) {
+        // حساب إنجاز اليوم الحالي بدقة من قائمة مهام المستخدم
+        const tasks = getTasksForDay(dayObj.key, state.weekly);
+        dayTotal = tasks.length;
+        dayCompleted = tasks.filter(t => t.done).length;
+        dayPercent = dayTotal > 0 ? Math.round((dayCompleted / dayTotal) * 100) : 0;
+      } else if (w.days && typeof w.days === "object") {
+        // إذا كان السيرفر يوفر تفاصيل يومية للأسابيع السابقة
+        const dayRecord = Array.isArray(w.days) ? w.days[dayIdx] : (w.days[dayObj.key] || w.days[normDay(dayObj.key)]);
+        if (dayRecord) {
+          dayCompleted = Number(dayRecord.completed || 0);
+          dayTotal = Number(dayRecord.total || 0);
+          dayPercent = Number(dayRecord.percent || 0);
+        }
+      } else {
+        // في حال عدم وجود تفصيل يومي مسجل مسبقاً
+        dayCompleted = 0;
+        dayTotal = 0;
+        dayPercent = 0;
+      }
+
+      const cellDate = getDateForCell(w.start, dayIdx);
+      const dateText = cellDate ? `${cellDate.getUTCDate()} ${LEVANT_MONTHS_SHORT[cellDate.getUTCMonth()]}` : "";
+      const storeIndex = cellDataStore.length;
+
+      cellDataStore.push({
+        dayName: dayObj.label,
+        dateText,
+        completed: dayCompleted,
+        total: dayTotal,
+        percent: dayPercent,
+        weekText: weekLabel(w),
+        isCurrent: isCurrentWeek
+      });
+
+      const titleAttr = `${dayObj.label} (${dateText}) • ${dayCompleted}/${dayTotal} منجز (${dayPercent}%)`;
+
+      return `<button type="button"
+        class="activity-cell ${activityLevelClass(dayPercent)} ${isCurrentWeek ? "is-current-week" : ""}"
+        title="${esc(titleAttr)}"
+        aria-label="${esc(titleAttr)}"
+        data-store-idx="${storeIndex}">
+      </button>`;
+    }).join("");
+  }).join("");
+
   $("weeklyActivity").innerHTML = `
     <section class="weekly-activity card">
       <div class="section-title activity-heading">
         <div>
-          <h2>📈 نشاط السنة</h2>
-          <p>كل مربع يمثل أسبوعًا واحدًا، ويحتفظ بنشاطه حتى نهاية 2026/2027.</p>
+          <h2>📈 نشاط السنة الدراسية</h2>
+          <p>كل مربع يمثل يومًا دراسيًا مستقلاً، ويتم تحديث نسبة الإنجاز يوميًا.</p>
         </div>
         ${current ? `<span class="current-week-badge">الأسبوع الحالي: ${esc(weekLabel(current))}</span>` : ""}
       </div>
@@ -308,54 +440,107 @@ function renderWeeklyActivity(payload) {
         <div class="activity-calendar">
           <div class="activity-months-wrap">
             <div class="activity-weekday-spacer"></div>
-            <div class="activity-months">${weeks.map((x,i) => {
-              const month = new Date(`${x.start}T00:00:00Z`).toLocaleDateString("ar-SY", {month:"short", timeZone:"UTC"});
-              const prev = i ? new Date(`${weeks[i-1].start}T00:00:00Z`).getUTCMonth() : -1;
-              const curMonth = new Date(`${x.start}T00:00:00Z`).getUTCMonth();
-              return curMonth !== prev ? `<span style="grid-column:${i+1}">${esc(month)}</span>` : "";
-            }).join("")}</div>
+            <div class="activity-months">
+              ${monthBlocks.map(b => {
+                if (b.span < 2) return "";
+                const name = LEVANT_MONTHS_SHORT[b.m];
+                const fullName = `${LEVANT_MONTHS_FULL[b.m]} (${GREGORIAN_MONTHS[b.m]} ${b.y})`;
+                return `<span style="grid-column:${b.startCol} / span ${b.span}" class="activity-month-label" title="${esc(fullName)}">${esc(name)}</span>`;
+              }).join("")}
+            </div>
           </div>
           <div class="activity-board">
-            <div class="activity-weekdays" aria-hidden="true"><span>أحد</span><span>اثن</span><span>ثلا</span><span>أرب</span><span>خمي</span><span>جمع</span><span>سبت</span></div>
-            <div class="activity-grid" aria-label="نشاط الأسابيع">
-              ${weeks.map((x,i) => Array.from({length:7},(_,day) => `<button type="button" class="activity-cell ${activityLevelClass(x.percent)} ${current && x.start===current.start ? "is-current" : ""}" title="${esc(weekLabel(x))} • ${x.completed}/${x.total} منجز (${x.percent}%)" aria-label="${esc(weekLabel(x))}، ${x.percent}%" data-activity-index="${i}"></button>`).join("")).join("")}
+            <div class="activity-weekdays" aria-hidden="true">
+              ${WEEKDAYS.map(d => `<span title="${d.label}">${d.label}</span>`).join("")}
+            </div>
+            <div class="activity-grid" aria-label="خريطة النشاط اليومي">
+              ${gridHtml}
             </div>
           </div>
         </div>
       </div>
-      <div class="activity-legend"><span>أقل</span><i class="activity-cell activity-0"></i><i class="activity-cell activity-1"></i><i class="activity-cell activity-2"></i><i class="activity-cell activity-3"></i><i class="activity-cell activity-4"></i><i class="activity-cell activity-5"></i><span>أعلى</span></div>
+      <div class="activity-legend">
+        <span>أقل</span>
+        <i class="activity-cell activity-0" title="0%"></i>
+        <i class="activity-cell activity-1" title="1-24%"></i>
+        <i class="activity-cell activity-2" title="25-49%"></i>
+        <i class="activity-cell activity-3" title="50-74%"></i>
+        <i class="activity-cell activity-4" title="75-99%"></i>
+        <i class="activity-cell activity-5" title="100%"></i>
+        <span>أعلى</span>
+      </div>
       <div id="activityDetails" class="activity-details"></div>
     </section>`;
 
-  document.querySelectorAll("[data-activity-index]").forEach(btn => btn.onclick = () => {
-    const x = weeks[Number(btn.dataset.activityIndex)];
-    $("activityDetails").innerHTML = x ? `<div><b>${esc(weekLabel(x))}</b><span>${x.completed} من ${x.total} مهمة منجزة</span><strong>${x.percent}%</strong></div>` : "";
+  document.querySelectorAll("[data-store-idx]").forEach(btn => {
+    btn.onclick = () => {
+      const item = cellDataStore[Number(btn.dataset.storeIdx)];
+      if (!item) return;
+      $("activityDetails").innerHTML = `
+        <div>
+          <b>${esc(item.dayName)} (${esc(item.dateText)})</b>
+          <span>${item.completed} من ${item.total} مهام مكتملة</span>
+          <strong>${item.percent}%</strong>
+          <small style="color:var(--muted)">[الأسبوع: ${esc(item.weekText)}]</small>
+        </div>`;
+    };
   });
 }
 
 function renderWeekly(rows) {
-  const today = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"][new Date().getDay()];
-  $("weeklyList").innerHTML = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"].map(day => {
-    const items = rows.filter(x=>x.day===day);
+  const currentDayIndex = new Date().getDay();
+  const todayKey = WEEKDAYS[currentDayIndex]?.key || "الأحد";
+
+  $("weeklyList").innerHTML = WEEKDAYS.map(d => {
+    const items = getTasksForDay(d.key, rows);
     if (!items.length) return "";
-    return `<section class="day-block ${day===today ? "today" : ""}"><div class="day-head"><h3>${day}</h3><span>${items.filter(x=>x.done).length}/${items.length} منجز</span></div>${items.map(x=>`<article class="task-row"><label><input type="checkbox" data-week-id="${attr(x.id)}" ${x.done ? "checked" : ""}><span><b>${esc(x.subject)}</b> — ${esc(x.task)}${x.time ? ` <small>(${esc(x.time)})</small>` : ""}</span></label><button class="danger-link" data-delweek-id="${attr(x.id)}">حذف</button></article>`).join("")}</section>`;
+    const doneCount = items.filter(x => x.done).length;
+    const isToday = normDay(d.key) === normDay(todayKey);
+
+    return `
+      <section class="day-block ${isToday ? "today" : ""}">
+        <div class="day-head">
+          <h3>${d.label}</h3>
+          <span>${doneCount}/${items.length} منجز</span>
+        </div>
+        ${items.map(x => `
+          <article class="task-row">
+            <label>
+              <input type="checkbox" data-week-id="${attr(x.id)}" ${x.done ? "checked" : ""}>
+              <span><b>${esc(x.subject)}</b> — ${esc(x.task)}${x.time ? ` <small>(${esc(x.time)})</small>` : ""}</span>
+            </label>
+            <button class="danger-link" data-delweek-id="${attr(x.id)}">حذف</button>
+          </article>
+        `).join("")}
+      </section>`;
   }).join("") || `<div class="empty">لم تضف أي مهام بعد.</div>`;
+
   document.querySelectorAll("[data-week-id]").forEach(el => el.onchange = async () => {
     try {
-      await api(`/api/weekly/${el.dataset.weekId}`, {method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({done:el.checked})});
-      state.weekly=await api("/api/weekly");
+      await api(`/api/weekly/${el.dataset.weekId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ done: el.checked })
+      });
+      state.weekly = await api("/api/weekly");
       renderWeekly(state.weekly);
       renderWeeklyActivity(await api("/api/weekly/activity"));
-    } catch(e){el.checked=!el.checked;showError(e);}
+    } catch(e) {
+      el.checked = !el.checked;
+      showError(e);
+    }
   });
+
   document.querySelectorAll("[data-delweek-id]").forEach(el => el.onclick = async () => {
     if (!confirm("حذف هذه المهمة؟")) return;
     try {
-      await api(`/api/weekly/${el.dataset.delweekId}`, {method:"DELETE"});
-      state.weekly=await api("/api/weekly");
+      await api(`/api/weekly/${el.dataset.delweekId}`, { method: "DELETE" });
+      state.weekly = await api("/api/weekly");
       renderWeekly(state.weekly);
       renderWeeklyActivity(await api("/api/weekly/activity"));
-    } catch(e){showError(e);}
+    } catch(e) {
+      showError(e);
+    }
   });
 }
 
@@ -369,20 +554,41 @@ async function refreshWeeklyView() {
 }
 
 async function weeklyPage() {
-  shell({title:"الجدول الأسبوعي", subtitle:"يُعاد ضبط علامات الإنجاز كل يوم خميس، ويُحفظ نشاط كل أسبوع في سجل السنة كاملة.", active:"weekly"}, `<section class="card">${weeklyForm()}</section><div id="weeklyList" class="days"></div><div id="weeklyActivity"></div>`);
+  shell({
+    title: "الجدول الأسبوعي",
+    subtitle: "يُعاد ضبط علامات الإنجاز كل يوم خميس، ويُحفظ نشاط كل أسبوع في سجل السنة كاملة.",
+    active: "weekly"
+  }, `<section class="card">${weeklyForm()}</section><div id="weeklyList" class="days"></div><div id="weeklyActivity"></div>`);
+
   try {
     await refreshWeeklyView();
     $("weeklyForm").onsubmit = async e => {
       e.preventDefault();
       const f = new FormData(e.target);
-      try { await api("/api/weekly", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({day:f.get("day"),subject:f.get("subject"),task:f.get("task"),time:f.get("time")})}); e.target.reset(); await refreshWeeklyView(); }
-      catch(err){showError(err);}
+      try {
+        await api("/api/weekly", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            day: f.get("day"),
+            subject: f.get("subject"),
+            task: f.get("task"),
+            time: f.get("time")
+          })
+        });
+        e.target.reset();
+        await refreshWeeklyView();
+      } catch(err) {
+        showError(err);
+      }
     };
     clearInterval(state.weeklyTimer);
     state.weeklyTimer = setInterval(async () => {
       try { await refreshWeeklyView(); } catch(e) { console.error(e); }
     }, 60000);
-  } catch(e){showError(e);}
+  } catch(e) {
+    showError(e);
+  }
 }
 
 function examCard(x) {
