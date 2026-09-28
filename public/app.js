@@ -305,14 +305,22 @@ function renderWeeklyActivity(payload) {
         ${current ? `<div><strong>${current.completed}/${current.total}</strong><span>هذا الأسبوع</span></div>` : ""}
       </div>
       <div class="activity-scroll">
-        <div class="activity-months">${weeks.map((x,i) => {
-          const month = new Date(`${x.start}T00:00:00Z`).toLocaleDateString("ar-SY", {month:"short", timeZone:"UTC"});
-          const prev = i ? new Date(`${weeks[i-1].start}T00:00:00Z`).getUTCMonth() : -1;
-          const curMonth = new Date(`${x.start}T00:00:00Z`).getUTCMonth();
-          return curMonth !== prev ? `<span style="grid-column:${i+1}">${esc(month)}</span>` : "";
-        }).join("")}</div>
-        <div class="activity-grid" aria-label="نشاط الأسابيع">
-          ${weeks.map((x,i) => `<button type="button" class="activity-cell ${activityLevelClass(x.percent)} ${current && x.start===current.start ? "is-current" : ""}" title="${esc(weekLabel(x))} • ${x.completed}/${x.total} منجز (${x.percent}%)" aria-label="${esc(weekLabel(x))}، ${x.percent}%" data-activity-index="${i}"></button>`).join("")}
+        <div class="activity-calendar">
+          <div class="activity-months-wrap">
+            <div class="activity-weekday-spacer"></div>
+            <div class="activity-months">${weeks.map((x,i) => {
+              const month = new Date(`${x.start}T00:00:00Z`).toLocaleDateString("ar-SY", {month:"short", timeZone:"UTC"});
+              const prev = i ? new Date(`${weeks[i-1].start}T00:00:00Z`).getUTCMonth() : -1;
+              const curMonth = new Date(`${x.start}T00:00:00Z`).getUTCMonth();
+              return curMonth !== prev ? `<span style="grid-column:${i+1}">${esc(month)}</span>` : "";
+            }).join("")}</div>
+          </div>
+          <div class="activity-board">
+            <div class="activity-weekdays" aria-hidden="true"><span>أحد</span><span>اثن</span><span>ثلا</span><span>أرب</span><span>خمي</span><span>جمع</span><span>سبت</span></div>
+            <div class="activity-grid" aria-label="نشاط الأسابيع">
+              ${weeks.map((x,i) => Array.from({length:7},(_,day) => `<button type="button" class="activity-cell ${activityLevelClass(x.percent)} ${current && x.start===current.start ? "is-current" : ""}" title="${esc(weekLabel(x))} • ${x.completed}/${x.total} منجز (${x.percent}%)" aria-label="${esc(weekLabel(x))}، ${x.percent}%" data-activity-index="${i}"></button>`).join("")).join("")}
+            </div>
+          </div>
         </div>
       </div>
       <div class="activity-legend"><span>أقل</span><i class="activity-cell activity-0"></i><i class="activity-cell activity-1"></i><i class="activity-cell activity-2"></i><i class="activity-cell activity-3"></i><i class="activity-cell activity-4"></i><i class="activity-cell activity-5"></i><span>أعلى</span></div>
