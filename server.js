@@ -27,6 +27,7 @@ const CHANNELS_DATA_SOURCE_ID = process.env.NOTION_CHANNELS_DATA_SOURCE_ID;
 const CHANNELS_DATABASE_ID = process.env.NOTION_CHANNELS_DATABASE_ID;
 const WEEKLY_DATA_SOURCE_ID = process.env.NOTION_WEEKLY_DATA_SOURCE_ID;
 const EXAMS_DATA_SOURCE_ID = process.env.NOTION_EXAMS_DATA_SOURCE_ID;
+const WEEKLY_ACTIVITY_DATA_SOURCE_ID = process.env.NOTION_WEEKLY_ACTIVITY_DATA_SOURCE_ID || "eb7fb5f2-79b7-450d-b207-d2bb9e202733";
 
 async function getChannelsDataSourceId() {
   // إذا تم تحديد Data Source ID مباشرة، استخدمه.
@@ -292,19 +293,153 @@ function toWeekly(page) {
   };
 }
 
-function toExam(page) {
+function toWeeklyActivity(page) {
   const p = page.properties || {};
   return {
     id: page.id,
-    subject: valueOf(p["المادة"]),
-    name: valueOf(p["الامتحان"] || Object.values(p).find(x => x.type === "title")),
-    at: p["الموعد"]?.date?.start || null
+    name: valueOf(p["الأسبوع"] || Object.values(p).find(x => x.type === "title")),
+    start: p["بداية الأسبوع"]?.date?.start || "",
+    end: p["نهاية الأسبوع"]?.date?.start || "",
+    completed: Number(valueOf(p["المكتمل"]) || 0),
+    total: Number(valueOf(p["الإجمالي"]) || 0),
+    percent: Number(valueOf(p["النسبة"]) || 0),
+    level: valueOf(p["المستوى"]) || "لا نشاط"
   };
 }
 
+function isoDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+function dateOnly(value) {
+  return new Date(`${value}T00:00:00Z`);
+}
+
+// The weekly cycle starts every Thursday and ends Wednesday.
+// We use Asia/Damascus for the calendar boundary so Vercel's UTC timezone cannot
+// accidentally reset the planner a few hours early/late.
+function damascusDateParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Damascus",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    weekday: "short"
+  }).formatToParts(date);
+  const get = type => parts.find(x => x.type === type)?.value;
+  return { year: Number(get("year")), month: Number(get("month")), day: Number(get("day")), weekday: get("weekday") };
+}
+
+function localCalendarDate(date = new Date()) {
+  const p = damascusDateParts(date);
+  return new Date(Date.UTC(p.year, p.month - 1, p.day));
+}
+
+function currentWeeklyWindow(date = new Date()) {
+  const today = localCalendarDate(date);
+  const day = today.getUTCDay(); // Sunday=0 ... Thursday=4
+  const daysSinceThursday = (day - 4 + 7) % 7;
+  const start = new Date(today);
+  start.setUTCDate(start.getUTCDate() - daysSinceThursday);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 6);
+  return { start: isoDate(start), end: isoDate(end) };
+}
+
+function activityLevel(percent) {
+  if (percent <= 0) return "لا نشاط";
+  if (percent < 25) return "نشاط منخفض";
+  if (percent < 50) return "نشاط متوسط";
+  if (percent < 75) return "نشاط جيد";
+  if (percent < 100) return "نشاط مرتفع";
+  return "نشاط كامل";
+}
+
+async function getWeeklyRows() {
+  return (await queryAllDataSource(WEEKLY_DATA_SOURCE_ID)).map(toWeekly);
+}
+
+async function getWeeklyActivityRows() {
+  return (await queryAllDataSource(WEEKLY_ACTIVITY_DATA_SOURCE_ID)).map(toWeeklyActivity);
+}
+
+async function updateWeeklyActivity(activity, completed, total) {
+  const percent = total ? Math.round((completed / total) * 100) : 0;
+  await notion.pages.update({
+    page_id: activity.id,
+    properties: {
+      "المكتمل": { number: completed },
+      "الإجمالي": { number: total },
+      "النسبة": { number: percent },
+      "المستوى": { select: { name: activityLevel(percent) } }
+    }
+  });
+  return { ...activity, completed, total, percent, level: activityLevel(percent) };
+}
+
+async function syncWeeklyCycle(force = false) {
+  const rows = await getWeeklyRows();
+  const activities = await getWeeklyActivityRows();
+  const window = currentWeeklyWindow();
+  const current = activities.find(x => x.start === window.start);
+
+  // The pre-created yearly activity rows are used as the reset marker:
+  // total=0 means the new Thursday cycle has not been initialized yet.
+  // Before resetting, capture the previous week's final checkbox state.
+  if (current && (force || current.total === 0)) {
+    const previous = activities
+      .filter(x => x.end && x.end < window.start)
+      .sort((a, b) => b.start.localeCompare(a.start))[0];
+
+    if (previous && rows.length) {
+      const completed = rows.filter(x => x.done).length;
+      await updateWeeklyActivity(previous, completed, rows.length);
+    }
+
+    if (rows.length) {
+      await Promise.all(rows.map(row => notion.pages.update({
+        page_id: row.id,
+        properties: {
+          "منجز": { checkbox: false },
+          "تاريخ الإنجاز": { date: null }
+        }
+      })));
+    }
+
+    if (current) {
+      await updateWeeklyActivity(current, 0, rows.length);
+    }
+  }
+
+  const freshRows = await getWeeklyRows();
+  const freshActivities = await getWeeklyActivityRows();
+  const active = freshActivities.find(x => x.start === window.start) || null;
+  return { rows: freshRows, activities: freshActivities, current: active, window };
+}
+
+async function refreshCurrentWeeklyActivity() {
+  const rows = await getWeeklyRows();
+  const activities = await getWeeklyActivityRows();
+  const window = currentWeeklyWindow();
+  const current = activities.find(x => x.start === window.start);
+  if (current) {
+    await updateWeeklyActivity(current, rows.filter(x => x.done).length, rows.length);
+  }
+  return { rows, activities: await getWeeklyActivityRows(), current, window };
+}
+
 app.get("/api/weekly", async (_req, res) => {
-  try { res.json((await queryAllDataSource(WEEKLY_DATA_SOURCE_ID)).map(toWeekly)); }
-  catch(e) { res.status(500).json({error:e.message}); }
+  try {
+    const result = await syncWeeklyCycle();
+    res.json(result.rows);
+  } catch(e) { res.status(500).json({error:e.message}); }
+});
+
+app.get("/api/weekly/activity", async (_req, res) => {
+  try {
+    const result = await syncWeeklyCycle();
+    res.json({ weeks: result.activities, current: result.current, window: result.window });
+  } catch(e) { res.status(500).json({error:e.message}); }
 });
 
 app.post("/api/weekly", async (req, res) => {
@@ -321,6 +456,7 @@ app.post("/api/weekly", async (req, res) => {
         "منجز": { checkbox: false }
       }
     });
+    await refreshCurrentWeeklyActivity();
     res.json(toWeekly(page));
   } catch(e) { res.status(500).json({error:e.message}); }
 });
@@ -333,16 +469,20 @@ app.patch("/api/weekly/:id", async (req, res) => {
       page_id: req.params.id,
       properties: {
         "منجز": { checkbox: done },
-        "تاريخ الإنجاز": done ? { date: { start: new Date().toISOString().slice(0,10) } } : { date: null }
+        "تاريخ الإنجاز": done ? { date: { start: isoDate(localCalendarDate()) } } : { date: null }
       }
     });
-    res.json({ok:true});
+    const activity = await refreshCurrentWeeklyActivity();
+    res.json({ok:true, activity:activity.current});
   } catch(e) { res.status(500).json({error:e.message}); }
 });
 
 app.delete("/api/weekly/:id", async (req, res) => {
-  try { await notion.pages.update({page_id:req.params.id, archived:true}); res.json({ok:true}); }
-  catch(e) { res.status(500).json({error:e.message}); }
+  try {
+    await notion.pages.update({page_id:req.params.id, archived:true});
+    await refreshCurrentWeeklyActivity();
+    res.json({ok:true});
+  } catch(e) { res.status(500).json({error:e.message}); }
 });
 
 app.get("/api/exams", async (_req, res) => {

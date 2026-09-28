@@ -5,7 +5,9 @@ const state = {
   unitIndex: 0,
   weekly: [],
   exams: [],
-  examTimer: null
+  examTimer: null,
+  weeklyTimer: null,
+  weeklyActivity: null
 };
 
 const page = document.body.dataset.page;
@@ -260,6 +262,69 @@ function weeklyForm() {
   return `<form id="weeklyForm" class="form-grid"><select name="day" required>${["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"].map(x=>`<option>${x}</option>`).join("")}</select><input name="subject" placeholder="المادة" required><input name="task" placeholder="المهمة / الدرس" required><input name="time" type="time" aria-label="الوقت"><button class="button" type="submit">＋ إضافة</button></form>`;
 }
 
+function activityLevelClass(percent) {
+  const p = Number(percent) || 0;
+  if (p <= 0) return "activity-0";
+  if (p < 25) return "activity-1";
+  if (p < 50) return "activity-2";
+  if (p < 75) return "activity-3";
+  if (p < 100) return "activity-4";
+  return "activity-5";
+}
+
+function weekLabel(x) {
+  if (!x?.start) return "أسبوع";
+  const start = new Date(`${x.start}T00:00:00Z`);
+  const end = new Date(`${x.end}T00:00:00Z`);
+  const fmt = d => d.toLocaleDateString("ar-SY", {day:"numeric", month:"short", timeZone:"UTC"});
+  return `${fmt(start)} — ${fmt(end)}`;
+}
+
+function renderWeeklyActivity(payload) {
+  const weeks = payload?.weeks || [];
+  const current = payload?.current;
+  state.weeklyActivity = payload;
+
+  const totalCompleted = weeks.reduce((sum, x) => sum + Number(x.completed || 0), 0);
+  const activeWeeks = weeks.filter(x => Number(x.completed || 0) > 0).length;
+  const average = weeks.length ? Math.round(weeks.reduce((sum, x) => sum + Number(x.percent || 0), 0) / weeks.length) : 0;
+
+  $("weeklyActivity").innerHTML = `
+    <section class="weekly-activity card">
+      <div class="section-title activity-heading">
+        <div>
+          <h2>📈 نشاط السنة</h2>
+          <p>كل مربع يمثل أسبوعًا واحدًا، ويحتفظ بنشاطه حتى نهاية 2026/2027.</p>
+        </div>
+        ${current ? `<span class="current-week-badge">الأسبوع الحالي: ${esc(weekLabel(current))}</span>` : ""}
+      </div>
+      <div class="activity-summary">
+        <div><strong>${activeWeeks}</strong><span>أسابيع نشطة</span></div>
+        <div><strong>${totalCompleted}</strong><span>مهام منجزة</span></div>
+        <div><strong>${average}%</strong><span>متوسط النشاط</span></div>
+        ${current ? `<div><strong>${current.completed}/${current.total}</strong><span>هذا الأسبوع</span></div>` : ""}
+      </div>
+      <div class="activity-scroll">
+        <div class="activity-months">${weeks.map((x,i) => {
+          const month = new Date(`${x.start}T00:00:00Z`).toLocaleDateString("ar-SY", {month:"short", timeZone:"UTC"});
+          const prev = i ? new Date(`${weeks[i-1].start}T00:00:00Z`).getUTCMonth() : -1;
+          const curMonth = new Date(`${x.start}T00:00:00Z`).getUTCMonth();
+          return curMonth !== prev ? `<span style="grid-column:${i+1}">${esc(month)}</span>` : "";
+        }).join("")}</div>
+        <div class="activity-grid" aria-label="نشاط الأسابيع">
+          ${weeks.map((x,i) => `<button type="button" class="activity-cell ${activityLevelClass(x.percent)} ${current && x.start===current.start ? "is-current" : ""}" title="${esc(weekLabel(x))} • ${x.completed}/${x.total} منجز (${x.percent}%)" aria-label="${esc(weekLabel(x))}، ${x.percent}%" data-activity-index="${i}"></button>`).join("")}
+        </div>
+      </div>
+      <div class="activity-legend"><span>أقل</span><i class="activity-cell activity-0"></i><i class="activity-cell activity-1"></i><i class="activity-cell activity-2"></i><i class="activity-cell activity-3"></i><i class="activity-cell activity-4"></i><i class="activity-cell activity-5"></i><span>أعلى</span></div>
+      <div id="activityDetails" class="activity-details"></div>
+    </section>`;
+
+  document.querySelectorAll("[data-activity-index]").forEach(btn => btn.onclick = () => {
+    const x = weeks[Number(btn.dataset.activityIndex)];
+    $("activityDetails").innerHTML = x ? `<div><b>${esc(weekLabel(x))}</b><span>${x.completed} من ${x.total} مهمة منجزة</span><strong>${x.percent}%</strong></div>` : "";
+  });
+}
+
 function renderWeekly(rows) {
   const today = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"][new Date().getDay()];
   $("weeklyList").innerHTML = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"].map(day => {
@@ -268,26 +333,47 @@ function renderWeekly(rows) {
     return `<section class="day-block ${day===today ? "today" : ""}"><div class="day-head"><h3>${day}</h3><span>${items.filter(x=>x.done).length}/${items.length} منجز</span></div>${items.map(x=>`<article class="task-row"><label><input type="checkbox" data-week-id="${attr(x.id)}" ${x.done ? "checked" : ""}><span><b>${esc(x.subject)}</b> — ${esc(x.task)}${x.time ? ` <small>(${esc(x.time)})</small>` : ""}</span></label><button class="danger-link" data-delweek-id="${attr(x.id)}">حذف</button></article>`).join("")}</section>`;
   }).join("") || `<div class="empty">لم تضف أي مهام بعد.</div>`;
   document.querySelectorAll("[data-week-id]").forEach(el => el.onchange = async () => {
-    try { await api(`/api/weekly/${el.dataset.weekId}`, {method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({done:el.checked})}); state.weekly=await api("/api/weekly"); renderWeekly(state.weekly); }
-    catch(e){el.checked=!el.checked;showError(e);}
+    try {
+      await api(`/api/weekly/${el.dataset.weekId}`, {method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({done:el.checked})});
+      state.weekly=await api("/api/weekly");
+      renderWeekly(state.weekly);
+      renderWeeklyActivity(await api("/api/weekly/activity"));
+    } catch(e){el.checked=!el.checked;showError(e);}
   });
   document.querySelectorAll("[data-delweek-id]").forEach(el => el.onclick = async () => {
     if (!confirm("حذف هذه المهمة؟")) return;
-    try { await api(`/api/weekly/${el.dataset.delweekId}`, {method:"DELETE"}); state.weekly=await api("/api/weekly"); renderWeekly(state.weekly); } catch(e){showError(e);}
+    try {
+      await api(`/api/weekly/${el.dataset.delweekId}`, {method:"DELETE"});
+      state.weekly=await api("/api/weekly");
+      renderWeekly(state.weekly);
+      renderWeeklyActivity(await api("/api/weekly/activity"));
+    } catch(e){showError(e);}
   });
 }
 
+async function refreshWeeklyView() {
+  const before = state.weeklyActivity?.current?.start || "";
+  state.weekly = await api("/api/weekly");
+  const activity = await api("/api/weekly/activity");
+  renderWeekly(state.weekly);
+  renderWeeklyActivity(activity);
+  return before !== (activity.current?.start || "");
+}
+
 async function weeklyPage() {
-  shell({title:"الجدول الأسبوعي", subtitle:"عدّل جدولك هنا وسيُحفظ مباشرة في Notion.", active:"weekly"}, `<section class="card">${weeklyForm()}</section><div id="weeklyList" class="days"></div>`);
+  shell({title:"الجدول الأسبوعي", subtitle:"يُعاد ضبط علامات الإنجاز كل يوم خميس، ويُحفظ نشاط كل أسبوع في سجل السنة كاملة.", active:"weekly"}, `<section class="card">${weeklyForm()}</section><div id="weeklyList" class="days"></div><div id="weeklyActivity"></div>`);
   try {
-    state.weekly = await api("/api/weekly");
-    renderWeekly(state.weekly);
+    await refreshWeeklyView();
     $("weeklyForm").onsubmit = async e => {
       e.preventDefault();
       const f = new FormData(e.target);
-      try { await api("/api/weekly", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({day:f.get("day"),subject:f.get("subject"),task:f.get("task"),time:f.get("time")})}); e.target.reset(); state.weekly=await api("/api/weekly"); renderWeekly(state.weekly); }
+      try { await api("/api/weekly", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({day:f.get("day"),subject:f.get("subject"),task:f.get("task"),time:f.get("time")})}); e.target.reset(); await refreshWeeklyView(); }
       catch(err){showError(err);}
     };
+    clearInterval(state.weeklyTimer);
+    state.weeklyTimer = setInterval(async () => {
+      try { await refreshWeeklyView(); } catch(e) { console.error(e); }
+    }, 60000);
   } catch(e){showError(e);}
 }
 
