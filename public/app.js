@@ -172,13 +172,27 @@ function countdown(at) {
   };
 }
 
+function formatTime12(timeStr) {
+  if (!timeStr) return "";
+  const parts = String(timeStr).trim().split(":");
+  if (parts.length < 2) return timeStr;
+  let hours = parseInt(parts[0], 10);
+  const minutes = parts[1].slice(0, 2);
+  if (isNaN(hours)) return timeStr;
+  const period = hours >= 12 ? "م" : "ص";
+  hours = hours % 12 || 12;
+  return `${hours}:${minutes} ${period}`;
+}
+
 function formatDate(value) {
   if (!value) return "—";
   const d = new Date(value);
   if (isNaN(d.getTime())) return "—";
-  const hours = String(d.getHours()).padStart(2, "0");
+  let hours = d.getHours();
   const mins = String(d.getMinutes()).padStart(2, "0");
-  return `${d.getDate()} ${LEVANT_MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}، ${hours}:${mins}`;
+  const period = hours >= 12 ? "م" : "ص";
+  hours = hours % 12 || 12;
+  return `${d.getDate()} ${LEVANT_MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}، ${hours}:${mins} ${period}`;
 }
 
 function renderDashboard(d, examsList = []) {
@@ -743,7 +757,7 @@ function renderWeekly(rows) {
           <article class="task-row">
             <label>
               <input type="checkbox" data-week-id="${attr(x.id)}" ${x.done ? "checked" : ""}>
-              <span><b>${esc(x.subject)}</b> — ${esc(x.task)}${x.time ? ` <small>(${esc(x.time)})</small>` : ""}</span>
+              <span><b>${esc(x.subject)}</b> — ${esc(x.task)}${x.time ? ` <small>(${esc(formatTime12(x.time))})</small>` : ""}</span>
             </label>
             <button class="danger-link" data-delweek-id="${attr(x.id)}">حذف</button>
           </article>
