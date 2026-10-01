@@ -26,13 +26,13 @@ const subjectsFallback = [
   "اللغة العربية", "اللغة الإنجليزية", "التربية الدينية"
 ];
 
-// الأيام الدراسية الخمسة المعتمدة فقط (من الأحد إلى الخميس)
+// الأيام الدراسية الخمسة المعتمدة مع رقم يوم الأسبوع في التقويم (الأحد = 0 إلى الخميس = 4)
 const WEEKDAYS = [
-  { key: "الأحد", label: "الأحد", short: "أحد" },
-  { key: "الإثنين", label: "الإثنين", short: "إثنين" },
-  { key: "الثلاثاء", label: "الثلاثاء", short: "ثلاثاء" },
-  { key: "الأربعاء", label: "الأربعاء", short: "أربعاء" },
-  { key: "الخميس", label: "الخميس", short: "خميس" }
+  { key: "الأحد", label: "الأحد", short: "أحد", dayOfWeek: 0 },
+  { key: "الإثنين", label: "الإثنين", short: "إثنين", dayOfWeek: 1 },
+  { key: "الثلاثاء", label: "الثلاثاء", short: "ثلاثاء", dayOfWeek: 2 },
+  { key: "الأربعاء", label: "الأربعاء", short: "أربعاء", dayOfWeek: 3 },
+  { key: "الخميس", label: "الخميس", short: "خميس", dayOfWeek: 4 }
 ];
 
 const LEVANT_MONTHS_SHORT = [
@@ -50,7 +50,7 @@ const GREGORIAN_MONTHS = [
   "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
 ];
 
-// دالة معالجة الامتحانات لمنع حدوث أي خطأ في الصفحة الرئيسية
+// دالة معالجة الامتحانات لمنع أي خطأ برمجي
 function toExam(item) {
   if (!item) return { id: "", subject: "", name: "", at: "" };
   return {
@@ -571,11 +571,19 @@ function weekLabel(x) {
   return `${fmt(start)} — ${fmt(end)}`;
 }
 
-function getDateForCell(weekStartStr, dayOffset) {
+// دالة تقويمية دقيقة: تبحث داخل نطاق الأسبوع السبعة عن اليوم المطابق تقويمياً لليوم الدراسي (الأحد=0..الخميس=4)
+function getDateForWeekdayInWeek(weekStartStr, targetDayOfWeek) {
   if (!weekStartStr) return null;
-  const d = new Date(`${weekStartStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + dayOffset);
-  return d;
+  const start = new Date(`${weekStartStr}T00:00:00Z`);
+  if (isNaN(start.getTime())) return null;
+  for (let offset = 0; offset < 7; offset++) {
+    const d = new Date(start);
+    d.setUTCDate(d.getUTCDate() + offset);
+    if (d.getUTCDay() === targetDayOfWeek) {
+      return d;
+    }
+  }
+  return null;
 }
 
 function renderWeeklyActivity(payload) {
@@ -615,7 +623,7 @@ function renderWeeklyActivity(payload) {
   const gridHtml = weeks.map((w) => {
     const isCurrentWeek = Boolean(current && w.start === current.start);
 
-    return WEEKDAYS.map((dayObj, dayIdx) => {
+    return WEEKDAYS.map((dayObj) => {
       let dayCompleted = 0;
       let dayTotal = 0;
       let dayPercent = 0;
@@ -629,21 +637,24 @@ function renderWeeklyActivity(payload) {
       } else {
         // للأسابيع السابقة: الحفاظ على البيانات المنجزة وتلوينها
         if (w.days && typeof w.days === "object" && Object.keys(w.days).length > 0) {
-          const dayRecord = Array.isArray(w.days) ? w.days[dayIdx] : (w.days[dayObj.key] || w.days[normDay(dayObj.key)]);
+          const dayRecord = Array.isArray(w.days)
+            ? (w.days.find(d => normDay(d.day) === normDay(dayObj.key)) || w.days[dayObj.dayOfWeek])
+            : (w.days[dayObj.key] || w.days[normDay(dayObj.key)]);
           if (dayRecord) {
             dayCompleted = Number(dayRecord.completed || 0);
             dayTotal = Number(dayRecord.total || 0);
             dayPercent = Number(dayRecord.percent || 0);
           }
         } else {
-          // في حال عدم توفر تفصيل كل يوم في السجل القديم، نستخدم نسبة نشاط الأسبوع المحفوظة (مثل 14 مهمة سابقة)
+          // استرجاع نسبة نشاط الأسبوع المحفوظة في السجل السابق
           dayCompleted = Number(w.completed || 0);
           dayTotal = Number(w.total || 0);
           dayPercent = Number(w.percent || 0);
         }
       }
 
-      const cellDate = getDateForCell(w.start, dayIdx);
+      // تحديد التاريخ الحقيقي المطابق ليوم الأسبوع بدقة
+      const cellDate = getDateForWeekdayInWeek(w.start, dayObj.dayOfWeek);
       const dateText = cellDate ? `${cellDate.getUTCDate()} ${LEVANT_MONTHS_SHORT[cellDate.getUTCMonth()]}` : "";
       const storeIndex = cellDataStore.length;
 
@@ -741,7 +752,7 @@ function renderWeeklyActivity(payload) {
 
 function renderWeekly(rows) {
   const currentDayIndex = new Date().getDay();
-  // تحويل مؤشر اليوم ليتوافق مع أيام الدراسة (الأحد = 0)
+  // أيام الدراسة من الأحد (0) إلى الخميس (4)
   const studyDaysIndices = [0, 1, 2, 3, 4];
   const todayKey = studyDaysIndices.includes(currentDayIndex) ? WEEKDAYS[currentDayIndex].key : "الأحد";
 
