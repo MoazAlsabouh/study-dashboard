@@ -50,7 +50,7 @@ const GREGORIAN_MONTHS = [
   "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
 ];
 
-// دالة معالجة الامتحانات لمنع حدوث خطأ toExam is not defined
+// دالة معالجة الامتحانات لمنع حدوث أي خطأ في الصفحة الرئيسية
 function toExam(item) {
   if (!item) return { id: "", subject: "", name: "", at: "" };
   return {
@@ -60,7 +60,6 @@ function toExam(item) {
     at: item.at || item.date || item.dateTime || ""
   };
 }
-// إتاحتها في النطاق العام لمنع أي خطأ غير متوقع
 window.toExam = toExam;
 
 function normDay(str = "") {
@@ -622,17 +621,25 @@ function renderWeeklyActivity(payload) {
       let dayPercent = 0;
 
       if (isCurrentWeek) {
-        // حساب إنجاز اليوم بدقة متناهية من مهام المستخدم المحددة للأسبوع الحالي
+        // حساب إنجاز اليوم بدقة من قائمة مهام المستخدم المحددة للأسبوع الحالي
         const tasks = getTasksForDay(dayObj.key, state.weekly);
         dayTotal = tasks.length;
         dayCompleted = tasks.filter(t => t.done).length;
         dayPercent = dayTotal > 0 ? Math.round((dayCompleted / dayTotal) * 100) : 0;
-      } else if (w.days && typeof w.days === "object") {
-        const dayRecord = Array.isArray(w.days) ? w.days[dayIdx] : (w.days[dayObj.key] || w.days[normDay(dayObj.key)]);
-        if (dayRecord) {
-          dayCompleted = Number(dayRecord.completed || 0);
-          dayTotal = Number(dayRecord.total || 0);
-          dayPercent = Number(dayRecord.percent || 0);
+      } else {
+        // للأسابيع السابقة: الحفاظ على البيانات المنجزة وتلوينها
+        if (w.days && typeof w.days === "object" && Object.keys(w.days).length > 0) {
+          const dayRecord = Array.isArray(w.days) ? w.days[dayIdx] : (w.days[dayObj.key] || w.days[normDay(dayObj.key)]);
+          if (dayRecord) {
+            dayCompleted = Number(dayRecord.completed || 0);
+            dayTotal = Number(dayRecord.total || 0);
+            dayPercent = Number(dayRecord.percent || 0);
+          }
+        } else {
+          // في حال عدم توفر تفصيل كل يوم في السجل القديم، نستخدم نسبة نشاط الأسبوع المحفوظة (مثل 14 مهمة سابقة)
+          dayCompleted = Number(w.completed || 0);
+          dayTotal = Number(w.total || 0);
+          dayPercent = Number(w.percent || 0);
         }
       }
 
@@ -669,7 +676,7 @@ function renderWeeklyActivity(payload) {
       <div class="section-title activity-heading">
         <div>
           <h2>📈 نشاط السنة الدراسية</h2>
-          <p>كل مربع يمثل يومًا دراسيًا مستقلاً، ويتم تحديث نسبة الإنجاز يوميًا.</p>
+          <p>كل مربع يمثل يومًا دراسيًا، ويُحفظ سجل كل أسبوع في تقويم السنة بالكامل.</p>
         </div>
         ${current ? `<span class="current-week-badge">الأسبوع الحالي: ${esc(weekLabel(current))}</span>` : ""}
       </div>
@@ -809,7 +816,7 @@ async function refreshWeeklyView() {
 async function weeklyPage() {
   shell({
     title: "الجدول الأسبوعي",
-    subtitle: "يُعاد ضبط علامات الإنجاز كل يوم خميس، ويُحفظ نشاط كل أسبوع في سجل السنة كاملة.",
+    subtitle: "يُعاد ضبط علامات الإنجاز نهاية كل أسبوع (يوم الجمعة)، مع بقاء سجل نشاط كل أسبوع محفوظاً في سجل السنة.",
     active: "weekly"
   }, `
     <section class="card">${weeklyForm()}</section>
